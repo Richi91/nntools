@@ -122,7 +122,7 @@ def genModel(batch_size, max_input_seq_len, input_dim, output_dim, grad_clip, ls
     """
 #************************************* Input Layer ********************************************
     l_in = lasagne.layers.InputLayer(shape=(batch_size, max_input_seq_len, input_dim))
-    
+    l_mask = lasagne.layers.InputLayer(shape=(batch_size, max_input_seq_len))
 ##************************************* BLSTM Layer 1 ******************************************
 #    lstm_forward0 = lasagne.layers.LSTMLayer(incoming=l_in, num_units=lstm_hidden_units[0], 
 #        grad_clipping=grad_clip, backwards=False)
@@ -145,9 +145,9 @@ def genModel(batch_size, max_input_seq_len, input_dim, output_dim, grad_clip, ls
 #    l_concat2 = lasagne.layers.ConcatLayer((lstm_forward2, lstm_backward2), axis=2)
   
 
-    blstm0 = BLSTM_Concat(incoming=l_in, num_units=lstm_hidden_units[0],grad_clipping=grad_clip, backwards=False)
-    blstm1 = BLSTM_Concat(incoming=blstm0, num_units=lstm_hidden_units[1],grad_clipping=grad_clip, backwards=False)
-    blstm2 = BLSTM_Concat(incoming=blstm1, num_units=lstm_hidden_units[2],grad_clipping=grad_clip, backwards=False)
+    blstm0 = BLSTM_Concat(incoming=l_in, mask_input=l_mask, num_units=lstm_hidden_units[0],grad_clipping=grad_clip, backwards=False)
+    blstm1 = BLSTM_Concat(incoming=blstm0, mask_input=l_mask, num_units=lstm_hidden_units[1],grad_clipping=grad_clip, backwards=False)
+    blstm2 = BLSTM_Concat(incoming=blstm1, mask_input=l_mask, num_units=lstm_hidden_units[2],grad_clipping=grad_clip, backwards=False)
 # Need to reshape hidden LSTM layers --> Combine batch size and sequence length for the output layer 
 # Otherwise, DenseLayer would treat sequence length as feature dimension        
     l_reshape2 = lasagne.layers.ReshapeLayer(
@@ -173,7 +173,8 @@ def genModel(batch_size, max_input_seq_len, input_dim, output_dim, grad_clip, ls
 def genModelTEST(batch_size, max_input_seq_len, input_dim, output_dim, grad_clip, lstm_hidden_units):
 #************************************* Input Layer ********************************************
     l_in = lasagne.layers.InputLayer(shape=(batch_size, max_input_seq_len, input_dim))
-    lstm_forward0 = lasagne.layers.LSTMLayer(incoming=l_in, num_units=500, 
+    l_mask = lasagne.layers.InputLayer(shape=(batch_size, max_input_seq_len))
+    lstm_forward0 = lasagne.layers.LSTMLayer(incoming=l_in, mask_input=l_mask, num_units=500, 
         grad_clipping=grad_clip, backwards=False)
   
 # Need to reshape hidden LSTM layers --> Combine batch size and sequence length for the output layer 
@@ -193,7 +194,7 @@ def genModelTEST(batch_size, max_input_seq_len, input_dim, output_dim, grad_clip
     l_out_softmax_shp = lasagne.layers.ReshapeLayer(
         l_out_softmax, (batch_size, max_input_seq_len, output_dim))   
         
-    return l_out_lin_shp, l_out_softmax_shp    
+    return l_out_lin_shp, l_out_softmax_shp, l_in, l_mask   
     
 def decodeSequence(sequence_probdist, mask, blanksymbol):
     """

@@ -68,10 +68,10 @@ Y = T.matrix('Y', dtype=theano.config.floatX) #BATCH_SIZE x MAX_OUTPUT_SEQ_LEN
 
 
 # model with linear and softmax output. Use linear for training with CTC and Softmax for validation or not at all..
-_, model_soft = be.genModelTEST(batch_size=BATCH_SIZE, max_input_seq_len=SEQ_LEN,input_dim=INPUT_DIM, 
+_, model_soft, l_in, l_mask  = be.genModelTEST(batch_size=BATCH_SIZE, max_input_seq_len=SEQ_LEN,input_dim=INPUT_DIM, 
     output_dim=OUTPUT_DIM, grad_clip=GRAD_CLIP, lstm_hidden_units=LSTM_HIDDEN_UNITS)
 
-output_softmax = lasagne.layers.get_output(model_soft, X, mask=X_mask) 
+output_softmax = lasagne.layers.get_output(model_soft) 
 
 # get all parameters used for training
 all_params = lasagne.layers.get_all_params(model_soft)
@@ -85,16 +85,16 @@ updates = lasagne.updates.momentum(
     
 logger.info('compiling functions...')
 # TODO: true cost does not work yet. ctc_cost.cost() seems to have a bug
-train = theano.function([X, Y, X_mask],
+train = theano.function([l_in.input_var, Y, l_mask.input_var],
                         outputs=[output_softmax, cost],
                         updates=updates)
                         
 compute_cost = theano.function(
-                inputs=[X, Y, X_mask],
+                inputs=[l_in.input_var, Y, l_mask.input_var],
                 outputs=cost)
 
 
-forward_pass = theano.function(inputs=[X, X_mask],
+forward_pass = theano.function(inputs=[l_in.input_var, l_mask.input_var],
                                outputs=[output_softmax])                
 
 

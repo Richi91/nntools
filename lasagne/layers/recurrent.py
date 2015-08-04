@@ -510,7 +510,7 @@ class Gate(object):
     b=lasagne.init.Constant(0.), nonlinearity=lasagne.nonlinearities.sigmoid)
 
     Simple class to hold the parameters for a gate connection.  We define
-    a gate loosely as something which compute the linear mix of two inputs,
+    a gate loosely as something which computes the linear mix of two inputs,
     optionally computes an element-wise product with a third, adds a bias, and
     applies a nonlinearity.
 

@@ -53,38 +53,28 @@ x_train_batch, y_train_batch, train_mask = \
 x_val_batch, y_val_batch, val_mask = \
     be.makeBatchesNoCTC(X_val, y_val, SEQ_LEN, BATCH_SIZE)
 
+
 # ******************** create model ***************************************
-#logger.info('target dim: ' + str(target_dim) + ', batch size: ' + str(batch_size) + \
-#    ', maximum sequence length: ' + str(max_seq_len) + ', feature dimension: ' + str(num_features))
-
-
 logger.info('generating model...')
-
-# input dimensions 
-X = T.tensor3('X', dtype=theano.config.floatX) # BATCH_SIZE x MAX_INPUT_SEQ_LEN x N_INPUT_FEATURES
-X_mask = T.matrix('X_mask', dtype=theano.config.floatX) # BATCH_SIZE x MAX_INPUT_SEQ_LEN
-Y = T.matrix('Y', dtype=theano.config.floatX) #BATCH_SIZE x MAX_OUTPUT_SEQ_LEN
-
-
-
-# model with linear and softmax output. Use linear for training with CTC and Softmax for validation or not at all..
+# model with linear and softmax output. Use linear for training with CTC and Softmax eventually for validation
 _, model_soft, l_in, l_mask  = be.genModelTEST(batch_size=BATCH_SIZE, max_input_seq_len=SEQ_LEN,input_dim=INPUT_DIM, 
     output_dim=OUTPUT_DIM, grad_clip=GRAD_CLIP, lstm_hidden_units=LSTM_HIDDEN_UNITS)
 
 output_softmax = lasagne.layers.get_output(model_soft) 
 
-# get all parameters used for training
-all_params = lasagne.layers.get_all_params(model_soft)
-
 output_flat = T.reshape(output_softmax, [BATCH_SIZE*SEQ_LEN, OUTPUT_DIM])
+
+Y = T.matrix('target', dtype=theano.config.floatX) #BATCH_SIZE x MAX_OUTPUT_SEQ_LEN
 cost = T.mean(T.nnet.categorical_crossentropy(output_flat,
                                        T.cast(T.reshape(Y,[BATCH_SIZE*SEQ_LEN]), 'int32')))
-                                       
+
+# get all parameters used for training
+all_params = lasagne.layers.get_all_params(model_soft) 
+                                      
 updates = lasagne.updates.momentum(
     cost, all_params, learning_rate=lasagne.utils.floatX(LEARNING_RATE))   
     
 logger.info('compiling functions...')
-# TODO: true cost does not work yet. ctc_cost.cost() seems to have a bug
 train = theano.function([l_in.input_var, Y, l_mask.input_var],
                         outputs=[output_softmax, cost],
                         updates=updates)
@@ -98,20 +88,31 @@ forward_pass = theano.function(inputs=[l_in.input_var, l_mask.input_var],
                                outputs=[output_softmax])                
 
 
-cost_val = [compute_cost(x, y, xy_mask) \
-    for x, y, xy_mask
-    in zip(x_val_batch, y_val_batch, val_mask)][0].mean()
-#***************************************************************************************    
+#***************************************************************************************  
 logger.info("calc initial cost and PER..")
-net_outputs = np.array([forward_pass(x,x_mask)[0] for x,x_mask in zip(x_val_batch,val_mask)]) 
+cost_val = [compute_cost(x, y, mask) \
+    for x, y, mask
+    in zip(x_val_batch, y_val_batch, val_mask)][0].mean()  
+
+# feed batches of data and mask through net, then reshape to flatten dimensions num_batches x batch_size 
+net_outputs = np.array([forward_pass(x,mask)[0] for x, mask in zip(x_val_batch,val_mask)]) 
 sequence_probdist = net_outputs \
     .reshape([net_outputs.shape[0]*net_outputs.shape[1],net_outputs.shape[2],net_outputs.shape[3]]) 
-masks = val_mask.reshape([val_mask.shape[0]*val_mask.shape[1],val_mask.shape[2]])            
-decoded = [be.decodeSequenceNoCTC(sequence_probdist[i], masks[i]) for i in range(sequence_probdist.shape[0])]
+
+# also reshape masks and target. --> flatten num_batches x batch_size    
+masks = val_mask.reshape([val_mask.shape[0]*val_mask.shape[1],val_mask.shape[2]]) 
 tar = y_val_batch.reshape([y_val_batch.shape[0]*y_val_batch.shape[1],y_val_batch.shape[2]]) 
+
+# decode each training datum sequentially.
+# TODO: decode in batches           
+decoded = [be.decodeSequenceNoCTC(sequence_probdist[i], masks[i]) for i in range(sequence_probdist.shape[0])]
+
+# calculate PER for each training datum sequentially. 
+# TODO: PER in batches
 PERs = [be.calcPERNoCTC(tar[i,masks[i,:]==1], decoded[i]) for i in range(tar.shape[0])]
 logger.info("Initial cost(val) = {},  PER-mean = {}".format(cost_val, np.mean(PERs)))
 #***************************************************************************************
+
 logger.info('Training...')
 for epoch in range(N_EPOCHS):        
     start_time_epoch = time.time()
@@ -131,19 +132,29 @@ for epoch in range(N_EPOCHS):
   
     # since we have a very small val set, validate over complete val set  
     print "\n"
-    cost_val = [compute_cost(x, y, xy_mask) \
-        for x, y, xy_mask
-        in zip(x_val_batch, y_val_batch, val_mask)][0].mean()
-
-    net_outputs = np.array([forward_pass(x,x_mask)[0] for x,x_mask in zip(x_val_batch,val_mask)]) 
+    
+    #***************************************************************************************      
+    cost_val = [compute_cost(x, y, mask) \
+        for x, y, mask
+        in zip(x_val_batch, y_val_batch, val_mask)][0].mean()  
+    
+    # feed batches of data and mask through net, then reshape to flatten dimensions num_batches x batch_size 
+    net_outputs = np.array([forward_pass(x,mask)[0] for x, mask in zip(x_val_batch,val_mask)]) 
     sequence_probdist = net_outputs \
         .reshape([net_outputs.shape[0]*net_outputs.shape[1],net_outputs.shape[2],net_outputs.shape[3]]) 
-    masks = val_mask.reshape([val_mask.shape[0]*val_mask.shape[1],val_mask.shape[2]])            
-    decoded = [be.decodeSequenceNoCTC(sequence_probdist[i], masks[i]) for i in range(sequence_probdist.shape[0])]
+    
+    # also reshape masks and target. --> flatten num_batches x batch_size    
+    masks = val_mask.reshape([val_mask.shape[0]*val_mask.shape[1],val_mask.shape[2]]) 
     tar = y_val_batch.reshape([y_val_batch.shape[0]*y_val_batch.shape[1],y_val_batch.shape[2]]) 
-    PERs = [be.calcPERNoCTC(tar[i,masks[i,:]==1], decoded[i]) for i in range(tar.shape[0])]
-
-
+    
+    # decode each training datum sequentially.
+    # TODO: decode in batches           
+    decoded = [be.decodeSequenceNoCTC(sequence_probdist[i], masks[i]) for i in range(sequence_probdist.shape[0])]
+    
+    # calculate PER for each training datum sequentially. 
+    # TODO: PER in batches
+    PERs = [be.calcPERNoCTC(tar[i,masks[i,:]==1], decoded[i]) for i in range(tar.shape[0])]   
+    #***************************************************************************************
    
     end_time_epoch = time.time()
     logger.info("Epoch {} took {}, cost(val) = {}, PER-mean = {}".format(

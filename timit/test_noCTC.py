@@ -40,7 +40,7 @@ GRAD_CLIP = 100 # clip large gradients in order to prevent exploding gradients
 # Network size parameters
 INPUT_DIM = 123
 OUTPUT_DIM = 61
-LSTM_HIDDEN_UNITS = [250, 250, 250]
+#LSTM_HIDDEN_UNITS = [250, 250, 250] # will not be used in genModelTEST
 SEQ_LEN = fe.getLongestSequence(X_train,X_val)
 
 
@@ -58,13 +58,13 @@ x_val_batch, y_val_batch, val_mask = \
 logger.info('generating model...')
 # model with linear and softmax output. Use linear for training with CTC and Softmax eventually for validation
 _, model_soft, l_in, l_mask  = be.genModelTEST(batch_size=BATCH_SIZE, max_input_seq_len=SEQ_LEN,input_dim=INPUT_DIM, 
-    output_dim=OUTPUT_DIM, grad_clip=GRAD_CLIP, lstm_hidden_units=LSTM_HIDDEN_UNITS)
+    output_dim=OUTPUT_DIM, grad_clip=GRAD_CLIP)
 
 output_softmax = lasagne.layers.get_output(model_soft) 
 
 output_flat = T.reshape(output_softmax, [BATCH_SIZE*SEQ_LEN, OUTPUT_DIM])
 
-Y = T.matrix('target', dtype=theano.config.floatX) #BATCH_SIZE x MAX_OUTPUT_SEQ_LEN
+Y = T.matrix('target', dtype=theano.config.floatX) #BATCH_SIZE x SEQ_LEN
 cost = T.mean(T.nnet.categorical_crossentropy(output_flat,
                                        T.cast(T.reshape(Y,[BATCH_SIZE*SEQ_LEN]), 'int32')))
 

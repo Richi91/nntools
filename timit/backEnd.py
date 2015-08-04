@@ -170,7 +170,7 @@ def genModel(batch_size, max_input_seq_len, input_dim, output_dim, grad_clip, ls
     
     
     
-def genModelTEST(batch_size, max_input_seq_len, input_dim, output_dim, grad_clip, lstm_hidden_units):
+def genModelTEST(batch_size, max_input_seq_len, input_dim, output_dim, grad_clip):
 #************************************* Input Layer ********************************************
     l_in = lasagne.layers.InputLayer(shape=(batch_size, max_input_seq_len, input_dim))
     l_mask = lasagne.layers.InputLayer(shape=(batch_size, max_input_seq_len))

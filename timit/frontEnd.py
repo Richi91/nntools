@@ -122,7 +122,7 @@ def getFeatures(signal, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfr
 
 def getAllFeatures(wavFileList, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph,winSzForDelta):
     '''
-    Computes all features of a given list of file paths to .wav files. Reads the
+    Computes all features of a given numpy vector of file paths to .wav files. Reads the
     wav files specified in 'wavFileList' the package 'PySoundFile'. 
     PySoundFile is able to read the format of the files from TIMIT database.
     See: http://pysoundfile.readthedocs.org/en/0.7.0/ and
@@ -142,7 +142,7 @@ def getAllFeatures(wavFileList, samplerate, winlen, winstep, nfilt,nfft, lowfreq
         - preemph
         - winSzForDelta
     :returns:
-        - featureList: list of np.arrays
+        - featureList: numpy vector of np.arrays
         list of same length as input wavFileList, dimensions of every element
         of the list specified by signal duration and winstep (1st dim), and
         number of filters (2nd dim)
@@ -150,11 +150,13 @@ def getAllFeatures(wavFileList, samplerate, winlen, winstep, nfilt,nfft, lowfreq
     featureList = []
     for f in wavFileList:
         signal, _ = sf.read(f)
-        # equalize rms --> same power in signals
-        rms = np.sqrt(np.mean(np.square(signal)))
+        ## equalize rms --> same power in signals
+        #rms = np.sqrt(np.mean(np.square(signal)))
+        #featureList.append(getFeatures
+        #    (signal/rms, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph,winSzForDelta)) 
         featureList.append(getFeatures
-            (signal/rms, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph,winSzForDelta)) 
-    return featureList
+            (signal, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph,winSzForDelta)) 
+    return np.array(featureList)
     
 def getTargets(phnFilesList):
     '''
@@ -266,16 +268,17 @@ def convertPhoneSequences(labelSequenceList,phonemeDic):
         - labelSequenceList: list of phoneme sequences
         - phonemeDic: dictionary of phonemes and corresponding values
     :returns:
-        - y: list of sequences in the form needed for training
-            each element in list is a 1d numpy array of integers 
+        - y: numpy vector of sequences(numpy vector) in the form needed for training
+            each element in vector is a 1d numpy array of integers 
     '''
     y = []
     #n_classes = len(phonemeDic)
     for sequence in labelSequenceList:
-        convertedSequence = np.array([phonemeDic[h] for h in sequence]) #sequence in numbers, not phoneme strings
+        # convert from phoneme strings to sequence vector in form of label numbers
+        convertedSequence = np.array([phonemeDic[h] for h in sequence]).astype(np.float32)
         #y.append(one_hot(convertedSequence,n_classes))
         y.append(convertedSequence)
-    return y
+    return np.array(y)
     
         
 def getTrainValTestPaths(timitRootDir,numSpeakersVal):
@@ -334,18 +337,18 @@ def normaliseFeatureVectors(x_train, x_val, x_test):
     Normalises the training, validation and test set.
     Normalisation is done by subtracting the mean-vector and divding
     by std-deviation-vector of the training data. 
-    Given list of training samples with dimension sequenceLength x feature_dim,
+    Given numpy vector of training samples with dimension sequenceLength x feature_dim,
     mean and variance is calculated for every feature independently.
     :params:
-        - x_train: list of training set
+        - x_train: numpy vector of training set
             used for calculating the mean and std-deviation
-        - x_val: list of validation set
-        - x_test: list of test set
+        - x_val: numpy vector of validation set
+        - x_test: numpy vector of test set
     :returns:
-        - x_train: list of normalised training set 
+        - x_train: numpy vector of normalised training set 
             has zero mean, unit variance over training data, for each dim
-        - x_val: list of normalised validation set
-        - x_test: list of normalised test set
+        - x_val: numpy vector of normalised validation set
+        - x_test: numpy vector of normalised test set
         - mean_vector: mean-vector
             calculated from training set. Has dimension equal to feature-dim
         - std_vector: std-deviation-vector
@@ -354,13 +357,14 @@ def normaliseFeatureVectors(x_train, x_val, x_test):
     stacked = np.vstack(x_train)
     mean_vector = np.mean(stacked,axis=0)
     std_vector = np.sqrt(np.var(stacked,axis=0))
-    
+    # normalize to zero mean and variance 1 and convert to float32 for GPU. convert after normalization
+    # to ensure no precision is wasted.
     for it in range(len(x_train)):
-        x_train[it] = np.divide(np.subtract(x_train[it],mean_vector),std_vector)
+        x_train[it] = (np.divide(np.subtract(x_train[it],mean_vector),std_vector)).astype(np.float32)
     for it in range(len(x_val)):
-        x_val[it] = np.divide(np.subtract(x_val[it],mean_vector),std_vector)
+        x_val[it] = np.divide(np.subtract(x_val[it],mean_vector),std_vector).astype(np.float32)
     for it in range(len(x_test)):
-        x_test[it] = np.divide(np.subtract(x_test[it],mean_vector),std_vector)
+        x_test[it] = np.divide(np.subtract(x_test[it],mean_vector),std_vector).astype(np.float32)
     
     return x_train, x_val, x_test, mean_vector, std_vector
     
@@ -369,8 +373,8 @@ def getLongestSequence(train_set, val_set):
     '''
     Return the longest sequence from train set and val set.
     :parameters:
-        - train_set: list of numpy.ndarray
-        - val_set: list of numpy.ndarray
+        - train_set: numpy vector of numpy.ndarray
+        - val_set: numpy vector of numpy.ndarray
     :returns:
         - integer value for length of longest sequence
     '''
@@ -457,7 +461,6 @@ def main():
         https://github.com/jameslyons/python_speech_features
     '''
 # ********************************* Configurations ************************************   
-    # 41 filters, 
     rootdir = '../../TIMIT/timit'
     storePath = '../data/timit_data.pkl'
     winlen, winstep, nfilt, lowfreq, highfreq, preemph, winSzForDelta, samplerate = \
@@ -492,9 +495,9 @@ def main():
     labelSequence_val = getTargets(phn_val)
     labelSequence_test = getTargets(phn_test)
 
-    phonemeDic = getPhonemeDictionary()
 
     logger.info('convert test and train targets into numbers ...')  
+    phonemeDic = getPhonemeDictionary()
     y_train = convertPhoneSequences(labelSequence_train, phonemeDic)
     y_val = convertPhoneSequences(labelSequence_val, phonemeDic)
     y_test = convertPhoneSequences(labelSequence_test, phonemeDic)

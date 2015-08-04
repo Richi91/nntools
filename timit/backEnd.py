@@ -79,8 +79,8 @@ def makeBatches(X, y, input_sequence_length, output_sequence_length, batch_size)
 
 
 def makeBatchesNoCTC(X, y, sequence_length, batch_size):
-    '''
-    '''
+    """
+    """
     n_batches = len(X)//batch_size # division with ceil (no non-full batches)
     # n_batches x batch_sz x in_seq_length x feature_dim
     X_batch = np.zeros((n_batches, batch_size, sequence_length, X[0].shape[1]),
@@ -103,7 +103,7 @@ def makeBatchesNoCTC(X, y, sequence_length, batch_size):
             # and marked with 0 in X_mask
             mask[b, n, :X_m.shape[0]] = 1.0
             
-            # similar with y
+            # similar procedure with y
             y_m = y[b*batch_size + n]
             y_batch[b, n, :y_m.shape[0]] = y_m
     return X_batch, y_batch, mask

@@ -15,6 +15,9 @@ import itertools
 import random
 import logging
 import pickle as pkl
+import netCDF4
+from netCDF4 import Dataset
+
 
 def nextpow2(i):
     '''
@@ -520,7 +523,192 @@ def main():
 #        y_train = pkl.load(input)
 #        y_val = pkl.load(input)
 #        y_test = pkl.load(input)
+    
+ 
+
+def CreateNetCDF():
+
+    rootdir = '../../TIMIT/timit'
+    dataPath = '../data/'
+    winlen, winstep, nfilt, lowfreq, highfreq, preemph, winSzForDelta, samplerate = \
+    0.025,  0.01,   40,     200,     8000,     0.97,    2,             16000           
+    nfft = nextpow2(samplerate*winlen) 
+    n_speaker_val = 50 
+    
+    wav_train, wav_val, wav_test, phn_train, phn_val, phn_test = getTrainValTestPaths(rootdir,n_speaker_val)
+    
+    X_train = getAllFeatures(wav_train, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph,winSzForDelta)
+    X_val = getAllFeatures(wav_val, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph,winSzForDelta)
+    X_test = getAllFeatures(wav_test, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph,winSzForDelta)
+    
+    X_train, X_val, X_test, mean_vector, std_vect = normaliseFeatureVectors(X_train, X_val, X_test)
+    
+    labelSequence_train = getTargetsEachTimestep(phn_train, [len(s) for s in X_train], winstep, samplerate, winlen)
+    labelSequence_val = getTargetsEachTimestep(phn_val, [len(s) for s in X_val], winstep, samplerate, winlen)
+    labelSequence_test = getTargetsEachTimestep(phn_test, [len(s) for s in X_test], winstep, samplerate, winlen)
+    
+    phonemeDic = getPhonemeDictionary()
+    
+    y_train = convertPhoneSequences(labelSequence_train, phonemeDic)
+    y_val = convertPhoneSequences(labelSequence_val, phonemeDic)
+    y_test = convertPhoneSequences(labelSequence_test, phonemeDic)
+    
+    numSeqs_train = len(X_train)
+    numSeqs_val = len(X_val)
+    numSeqs_test = len(X_test)
+    numTimesteps_train = sum(len(s) for s in X_train)
+    numTimesteps_val = sum(len(s) for s in X_val)
+    numTimesteps_test = sum(len(s) for s in X_test)
+    inputPattSize = 123
+    maxSeqTagLength = 100 # This will be the name of the files. path from timit to file
+    numLabels = 61 # CHANGE TO 62 IF USE CTC and need blank symbol
+    maxLabelLength = getLongestSequence(y_train,y_val)
+
+
+    train = Dataset(dataPath+'train.nc', 'w', format='NETCDF4')
+    try:
+        # create dimension
+        train.createDimension('numSeqs', numSeqs_train)
+        train.createDimension('numTimesteps', numTimesteps_train)
+        train.createDimension('inputPattSize', inputPattSize)
+        train.createDimension('numLabels', numLabels)
+        train.createDimension('maxLabelLength', maxLabelLength)
+        train.createDimension('maxSeqTagLength', maxSeqTagLength)
+        # create variables   
+        seqTags = train.createVariable('seqTags','S1',('numSeqs', 'maxSeqTagLength',))
+        seqLengths = train.createVariable('seqLengths','i4',('numSeqs',))
+        seqStartIndices = train.createVariable('seqStartIndices','i4',('numSeqs',))
+        inputs = train.createVariable('inputs','f4',('numTimesteps','inputPattSize',))
+        targetClasses = train.createVariable('targetClasses','i4',('numTimesteps',))
+        
+        # write into variables    
+        index = 0
+        for s in wav_train:
+            tmp_str = s.split('train',1)[1]
+            tmp_str = np.array(tmp_str.split(","))
+            tmp_str = netCDF4.stringtochar(tmp_str)
+            seqTags[index,0:tmp_str.shape[1]] = tmp_str
+            index += 1
+           
+#        index = 0
+#        for s in wav_train:
+#            tmp_str = s.split('train',1)[1]
+#            for index_char in range(len(tmp_str)):
+#                seqTags[index,index_char] = tmp_str[index_char]
+#            index += 1    
+           
+        seqLengths[:] = [len(s) for s in X_train]
+            
+        index = 0
+        for counter, s in enumerate(X_train):
+            inputs[index:index+len(s),:] = s
+            seqStartIndices[counter] = index
+            index += len(s)
+            
+            
+        index = 0     
+        # targets for every timestep --> no CTC
+        for s in y_train:
+            targetClasses[index:index+len(s)] = s
+            index += len(s) 
+    
+    except:
+        print '\n\nfail train\n\n'
+        pass
+    train.close()
+    
+    
+    
+    
+    val = Dataset(dataPath+'val.nc', 'w', format='NETCDF4')
+    try:
+        # create dimension
+        val.createDimension('numSeqs', numSeqs_val)
+        val.createDimension('numTimesteps', numTimesteps_val)
+        val.createDimension('inputPattSize', inputPattSize)
+        val.createDimension('numLabels', numLabels)
+        val.createDimension('maxLabelLength', maxLabelLength)
+        val.createDimension('maxSeqTagLength', maxSeqTagLength)
+        # create variables   
+        seqTags = val.createVariable('seqTags','S1',('numSeqs', 'maxSeqTagLength',))
+        seqLengths = val.createVariable('seqLengths','i4',('numSeqs',))
+        seqStartIndices = train.createVariable('seqStartIndices','i4',('numSeqs',))
+        inputs = val.createVariable('inputs','f4',('numTimesteps','inputPattSize',))
+        targetClasses = val.createVariable('targetClasses','i4',('numTimesteps',))
+        
+        # write into variables    
+        index = 0
+        for s in wav_val:
+            tmp_str = s.split('train',1)[1]
+            tmp_str = np.array(tmp_str.split(","))
+            tmp_str = netCDF4.stringtochar(tmp_str)
+            seqTags[index,0:tmp_str.shape[1]] = tmp_str
+            index += 1
+                 
+        seqLengths[:] = [len(s) for s in X_val]
+        
+        index = 0
+        for counter,s in enumerate(X_val):
+            inputs[index:index+len(s),:] = s
+            seqStartIndices[counter] = index
+            index += len(s)
+            
+        index = 0 
+        # targets for every timestep --> no CTC
+        for s in y_val:
+            targetClasses[index:index+len(s)] = s
+            index += len(s) 
+    
+    except:
+        print '\n\nfail val\n\n'
+        pass
+    val.close()
+    
+    
+    
+    test = Dataset(dataPath+'test.nc', 'w', format='NETCDF4')
+    try:
+        # create dimension
+        test.createDimension('numSeqs', numSeqs_test)
+        test.createDimension('numTimesteps', numTimesteps_test)
+        test.createDimension('inputPattSize', inputPattSize)
+        test.createDimension('numLabels', numLabels)
+        test.createDimension('maxLabelLength', maxLabelLength)
+        test.createDimension('maxSeqTagLength', maxSeqTagLength)
+        # create variables   
+        seqTags = test.createVariable('seqTags','S1',('numSeqs', 'maxSeqTagLength',))
+        seqLengths = test.createVariable('seqLengths','i4',('numSeqs',))
+        seqStartIndices = train.createVariable('seqStartIndices','i4',('numSeqs',))
+        inputs = test.createVariable('inputs','f4',('numTimesteps','inputPattSize',))
+        targetClasses = test.createVariable('targetClasses','i4',('numTimesteps',))
+        
+        # write into variables    
+        index = 0
+        for s in wav_test:
+            tmp_str = s.split('test',1)[1]
+            tmp_str = np.array(tmp_str.split(","))
+            tmp_str = netCDF4.stringtochar(tmp_str)
+            seqTags[index,0:tmp_str.shape[1]] = tmp_str
+            index += 1
+                 
+        seqLengths[:] = [len(s) for s in X_test]
+            
+        index = 0
+        for counter,s in enumerate(X_test):
+            inputs[index:index+len(s),:] = s
+            seqStartIndices[counter] = index
+            index += len(s)
+                    
+        index = 0       
+        # targets for every timestep --> no CTC
+        for s in y_test:
+            targetClasses[index:index+len(s)] = s
+            index += len(s) 
+    
+    except:
+        print '\n\nfail test\n\n'
+        pass
+    test.close()  
 
 if __name__ == '__main__':
-    mainNoCTC()
-    print "TODO: change pkl to netCDF"
+    CreateNetCDF()

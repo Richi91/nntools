@@ -11,21 +11,85 @@ import lasagne
 import logging
 
 
-def BLSTM_Concat(*args, **kwargs):
+def BLSTMConcatLayer(*args, **kwargs):
+    """
+    This function generates a BLSTM by concatenating a forward and a backward LSTM
+    at axis 2, which should be the axis for the hidden dimension (batch_size x seq_len x hidden_dim)
+    :parameters: See LSTMLayer for inputs, this layer receives the same inputs as a LSTM-Layer
+    :returns: lasagne.layers.ConcatLayer of 2 LSTM layers 
+    """
     kwargs.pop('backwards', None)
     l_fwd = lasagne.layers.LSTMLayer(*args, backwards=False, **kwargs)
     l_bwd = lasagne.layers.LSTMLayer(*args, backwards=True, **kwargs)
     return lasagne.layers.ConcatLayer((l_fwd,l_bwd),axis=2)
 
 
+def makeRandomBatchesFromNetCDF(rootgrp, batch_size):
+    """
+    This function generates random batches from a netCDF dataset. 
+    Not only one batch is generated, but as many as possible.
+    The outputs are thus of dimension num_batches x batch_size x ... 
+    The elements/sequences in the batches are randomly shuffled. This function
+    can be called after each epoch, generating another random constellation of batches.
+    Note that enoug RAM should be available
+    :parameters:
+        - rootgrp : netCDF4 dataset generated with the function in frontEnd.py 
+        - batch_size : int
+            Mini-batch size
+    :returns:
+        - X_batch: np.array with dtype theano.config.floatX, num_batches x batch_size x input_seq_len x input_dim
+            all batches of input data
+        - y_batch: np.array with dtype theano.config.floatX, num_batches x batch_size x output_seq_len
+            all batches of target data
+        - X_mask: np.array with dtype theano.config.floatX, num_batches x batch_size x input_seq_len 
+            all batches of input masks
+        - y_mask: mp.array with dtype theano.config.floatX, num_batches x batch_size x output_seq_len 
+            all batches of output data
+    """
+    numSeqs = len(rootgrp.dimensions['numSeqs'])
+    n_batches = numSeqs//batch_size
+    input_sequence_length = len(rootgrp.dimensions['maxLabelLength'])
+    output_sequence_length = len(rootgrp.dimensions['maxLabelLength'])
+    inputPattSize = len(rootgrp.dimensions['inputPattSize'])
+    
+    # initialize with zeros. n_batches * batch_sz x in_seq_length x inputPatternSize --> reshape later
+    X_batch = np.zeros((n_batches * batch_size, input_sequence_length, inputPattSize),
+                       dtype=np.float32) 
+    # n_batches * batch_sz x out_seq_length --> reshape later
+    y_batch = np.zeros((n_batches * batch_size, output_sequence_length),
+                       dtype=np.float32) 
+              
+    X_mask = np.zeros((n_batches * batch_size, input_sequence_length), dtype=np.float32)          
+    y_mask = np.zeros((n_batches * batch_size, output_sequence_length), dtype=np.float32)
+    
+    # get as many sequences as possible: e.g. 1520 sequences with batch size 50 --> 30*50 batches, dump 20
+    selected_sequences = np.sort(np.random.choice(numSeqs,n_batches*batch_size, False))
+    start_index = rootgrp.variables['seqStartIndices'][selected_sequences]
+    seq_len = rootgrp.variables['seqLengths'][selected_sequences]
+    for c, (si,sl) in enumerate(zip(start_index,seq_len)):
+        X_m = rootgrp.variables['inputs'][si:si+sl,:]
+        X_batch[c, :X_m.shape[0],:] = X_m
+        X_mask[c, :X_m.shape[0]] = 1.0
+            
+        # similar with y
+        y_m = rootgrp.variables['targetClasses'][si:si+sl]
+        y_batch[c, :y_m.shape[0]] = y_m
+        y_mask[c, :y_m.shape[0]] = 1.0
+    # shuffle sequences, reshape and convert to theano float32
+    shuffle = np.random.choice(n_batches*batch_size,n_batches*batch_size, False)
+    return X_batch[shuffle].reshape([n_batches, batch_size, input_sequence_length, inputPattSize]).astype(theano.config.floatX), \
+           y_batch[shuffle].reshape([n_batches, batch_size, output_sequence_length]).astype(theano.config.floatX), \
+           X_mask[shuffle].reshape([n_batches, batch_size, input_sequence_length]).astype(theano.config.floatX), \
+           y_mask[shuffle].reshape([n_batches, batch_size, output_sequence_length]).astype(theano.config.floatX)
+
 def makeBatches(X, y, input_sequence_length, output_sequence_length, batch_size):
     '''
-    Convert a list of matrices into batches of uniform length
+    Convert a numpy-vector(list) of matrices into batches of uniform length
     :parameters:
-        - X : list of np.ndarray
+        - X : numpy-vector(list) of np.ndarray
             List of matrices
-        - y: list of np.ndarray
-            list of vectors
+        - y: numpy-vector(list) of np.ndarray
+            numpy-vector(list) of vectors
         - input_sequence_length : int
             Desired input sequence length.  Smaller sequences will be padded with 0s,
             longer will be truncated.
@@ -51,13 +115,13 @@ def makeBatches(X, y, input_sequence_length, output_sequence_length, batch_size)
     n_batches = len(X)//batch_size # division with ceil (no non-full batches)
     # n_batches x batch_sz x in_seq_length x feature_dim
     X_batch = np.zeros((n_batches, batch_size, input_sequence_length, X[0].shape[1]),
-                       dtype=theano.config.floatX) 
+                       dtype=np.float32) 
     # n_batches x batch_sz x out_seq_length
     y_batch = np.zeros((n_batches, batch_size, output_sequence_length),
-                       dtype=theano.config.floatX) 
+                       dtype=np.float32) 
               
-    X_mask = np.zeros((n_batches, batch_size, input_sequence_length), dtype=theano.config.floatX)          
-    y_mask = np.zeros((n_batches, batch_size, output_sequence_length), dtype=theano.config.floatX)
+    X_mask = np.zeros((n_batches, batch_size, input_sequence_length), dtype=np.float32)          
+    y_mask = np.zeros((n_batches, batch_size, output_sequence_length), dtype=np.float32)
     
     for b in range(n_batches):
         for n in range(batch_size):
@@ -74,22 +138,24 @@ def makeBatches(X, y, input_sequence_length, output_sequence_length, batch_size)
             y_m = y[b*batch_size + n]
             y_batch[b, n, :y_m.shape[0]] = y_m
             y_mask[b, n, :y_m.shape[0]] = 1.0
-    return X_batch, X_mask, y_batch, y_mask
+    return X_batch.astype(theano.config.floatX), X_mask.astype(theano.config.floatX), \
+           y_batch.astype(theano.config.floatX), y_mask.astype(theano.config.floatX)
     
 
 
 def makeBatchesNoCTC(X, y, sequence_length, batch_size):
     """
+    Not needed anymore... delete me eventually
     """
     n_batches = len(X)//batch_size # division with ceil (no non-full batches)
     # n_batches x batch_sz x in_seq_length x feature_dim
     X_batch = np.zeros((n_batches, batch_size, sequence_length, X[0].shape[1]),
-                       dtype=theano.config.floatX) 
+                       dtype=np.float32) 
     # n_batches x batch_sz x out_seq_length
     y_batch = np.zeros((n_batches, batch_size, sequence_length),
-                       dtype=theano.config.floatX) 
+                       dtype=np.float32) 
               
-    mask = np.zeros((n_batches, batch_size, sequence_length), dtype=theano.config.floatX)          
+    mask = np.zeros((n_batches, batch_size, sequence_length), dtype=np.float32)          
 
     
     for b in range(n_batches):
@@ -106,14 +172,16 @@ def makeBatchesNoCTC(X, y, sequence_length, batch_size):
             # similar procedure with y
             y_m = y[b*batch_size + n]
             y_batch[b, n, :y_m.shape[0]] = y_m
-    return X_batch, y_batch, mask
+    return X_batch.astype(theano.config.floatX), \
+           y_batch.astype(theano.config.floatX), \
+           mask.astype(theano.config.floatX)
     
     
     
     
-def genModel(batch_size, max_input_seq_len, input_dim, output_dim, grad_clip, lstm_hidden_units):
+def genModel(batch_size, max_input_seq_len, input_dim, output_dim, gradient_steps, grad_clip, lstm_hidden_units):
     """
-    Creates a deep BLSTM model. 3 layers of BLSTM units, where BLSTM units consist of 2 LSTM units,
+    Creates a deep BLSTM model with 3 layers of BLSTM units, where BLSTM units consist of 2 LSTM units,
     one calculating outputs for the forward sequence and one for backward sequence (reversed). The
     forward and backward LSTMs are merged by concatenating (alternative is sum). 
     The output of the 3 BLSTM Layers is fed into a fully connected layer. 
@@ -123,78 +191,35 @@ def genModel(batch_size, max_input_seq_len, input_dim, output_dim, grad_clip, ls
 #************************************* Input Layer ********************************************
     l_in = lasagne.layers.InputLayer(shape=(batch_size, max_input_seq_len, input_dim))
     l_mask = lasagne.layers.InputLayer(shape=(batch_size, max_input_seq_len))
-##************************************* BLSTM Layer 1 ******************************************
-#    lstm_forward0 = lasagne.layers.LSTMLayer(incoming=l_in, num_units=lstm_hidden_units[0], 
-#        grad_clipping=grad_clip, backwards=False)
-#    lstm_backward0 = lasagne.layers.LSTMLayer(incoming=l_in, num_units=lstm_hidden_units[0], 
-#        grad_clipping=grad_clip, backwards=True)
-#    l_concat0 = lasagne.layers.ConcatLayer((lstm_forward0, lstm_backward0), axis=2)
-#    
-##************************************* BLSTM Layer 2 ******************************************
-#    lstm_forward1 = lasagne.layers.LSTMLayer(incoming=l_concat0, num_units=lstm_hidden_units[1],
-#        grad_clipping=grad_clip, backwards=False)
-#    lstm_backward1 = lasagne.layers.LSTMLayer(incoming=l_concat0, num_units=lstm_hidden_units[1],
-#        grad_clipping=grad_clip, backwards=True)
-#    l_concat1 = lasagne.layers.ConcatLayer((lstm_forward1, lstm_backward1), axis=2)
-#    
-##************************************* BLSTM Layer 3 ******************************************
-#    lstm_forward2 = lasagne.layers.LSTMLayer(incoming=l_concat1, num_units=lstm_hidden_units[2], 
-#        grad_clipping=grad_clip, backwards=False)
-#    lstm_backward2 = lasagne.layers.LSTMLayer(incoming=l_concat1, num_units=lstm_hidden_units[2], 
-#        grad_clipping=grad_clip, backwards=True)                                         
-#    l_concat2 = lasagne.layers.ConcatLayer((lstm_forward2, lstm_backward2), axis=2)
-  
 
-    blstm0 = BLSTM_Concat(incoming=l_in, mask_input=l_mask, num_units=lstm_hidden_units[0],grad_clipping=grad_clip, backwards=False)
-    blstm1 = BLSTM_Concat(incoming=blstm0, mask_input=l_mask, num_units=lstm_hidden_units[1],grad_clipping=grad_clip, backwards=False)
-    blstm2 = BLSTM_Concat(incoming=blstm1, mask_input=l_mask, num_units=lstm_hidden_units[2],grad_clipping=grad_clip, backwards=False)
+    blstm0 = BLSTMConcatLayer(incoming=l_in, mask_input=l_mask, 
+        num_units=lstm_hidden_units[0], gradient_steps=gradient_steps, grad_clipping=grad_clip, backwards=False)
+    blstm1 = BLSTMConcatLayer(incoming=blstm0, mask_input=l_mask,
+        num_units=lstm_hidden_units[1], gradient_steps=gradient_steps, grad_clipping=grad_clip, backwards=False)
+    blstm2 = BLSTMConcatLayer(incoming=blstm1, mask_input=l_mask, 
+        num_units=lstm_hidden_units[2], gradient_steps=gradient_steps, grad_clipping=grad_clip, backwards=False)
+        
 # Need to reshape hidden LSTM layers --> Combine batch size and sequence length for the output layer 
 # Otherwise, DenseLayer would treat sequence length as feature dimension        
+
     l_reshape2 = lasagne.layers.ReshapeLayer(
-        blstm2, (batch_size*max_input_seq_len, lstm_hidden_units[2] + lstm_hidden_units[2]))
-    l_out = lasagne.layers.DenseLayer(
-        incoming=l_reshape2, num_units=output_dim, nonlinearity=lasagne.nonlinearities.identity)
+        blstm2, (batch_size*max_input_seq_len, lstm_hidden_units[2]*2))
+    l_out_lin = lasagne.layers.DenseLayer(
+        incoming=l_reshape2, num_units=output_dim, nonlinearity=lasagne.nonlinearities.linear)
     
 #************************************ linear output ******************************************
     l_out_lin_shp = lasagne.layers.ReshapeLayer(
-        l_out, (batch_size, max_input_seq_len, output_dim))
+        l_out_lin, (batch_size, max_input_seq_len, output_dim))
     
 #************************************ Softmax output *****************************************
     l_out_softmax = lasagne.layers.NonlinearityLayer(
-        l_out, nonlinearity=lasagne.nonlinearities.softmax)
+        l_out_lin, nonlinearity=lasagne.nonlinearities.softmax)
     l_out_softmax_shp = lasagne.layers.ReshapeLayer(
         l_out_softmax, (batch_size, max_input_seq_len, output_dim))   
         
-    return l_out_lin_shp, l_out_softmax_shp
+    return l_out_lin_shp, l_out_softmax_shp, l_in, l_mask
     
     
-    
-    
-def genModelTEST(batch_size, max_input_seq_len, input_dim, output_dim, grad_clip):
-#************************************* Input Layer ********************************************
-    l_in = lasagne.layers.InputLayer(shape=(batch_size, max_input_seq_len, input_dim))
-    l_mask = lasagne.layers.InputLayer(shape=(batch_size, max_input_seq_len))
-    lstm_forward0 = lasagne.layers.LSTMLayer(incoming=l_in, mask_input=l_mask, num_units=500, 
-        grad_clipping=grad_clip, backwards=False)
-  
-# Need to reshape hidden LSTM layers --> Combine batch size and sequence length for the output layer 
-# Otherwise, DenseLayer would treat sequence length as feature dimension        
-    l_reshape2 = lasagne.layers.ReshapeLayer(
-        lstm_forward0, (batch_size*max_input_seq_len, 500))
-    l_out = lasagne.layers.DenseLayer(
-        incoming=l_reshape2, num_units=output_dim, nonlinearity=lasagne.nonlinearities.identity)
-    
-#************************************ linear output ******************************************
-    l_out_lin_shp = lasagne.layers.ReshapeLayer(
-        l_out, (batch_size, max_input_seq_len, output_dim))
-    
-#************************************ Softmax output *****************************************
-    l_out_softmax = lasagne.layers.NonlinearityLayer(
-        l_out, nonlinearity=lasagne.nonlinearities.softmax)
-    l_out_softmax_shp = lasagne.layers.ReshapeLayer(
-        l_out_softmax, (batch_size, max_input_seq_len, output_dim))   
-        
-    return l_out_lin_shp, l_out_softmax_shp, l_in, l_mask   
     
 def decodeSequence(sequence_probdist, mask, blanksymbol):
     """
@@ -210,16 +235,38 @@ def decodeSequence(sequence_probdist, mask, blanksymbol):
     
 
 def decodeSequenceNoCTC(sequence_probdist, mask):
+    """
+    This function decodes each timestep by outputting the label with the highest probability,
+    given an output distribution
+    :parameters:
+        - sequence_probdist: numpy array of output distribution num_seq x output_dim
+        - mask: mask for marking which elements in sequence_probdist are valid
+    """
     return np.array(sequence_probdist[mask==1].argmax(axis=1))
 
 
 def calcPERNoCTC(tar,out):
+    """
+    This function calculates the phoneme-error-rate, when not using CTC, but having a network output
+    for every input. just compares target output (tar) and actual output (out)
+    :parameters:
+        - tar: target output
+        - out: network output (decoded)
+    :returns:
+        - phoneme error rate
+    """
     return (tar!=out).mean()
     
 def calcPER(tar, out):
     """
     This function calculates the Phoneme Error Rate (PER) of the decoded networks output
     sequence (out) and a target sequence (tar) with Levenshtein distance and dynamic programming.
+    This is the same algorithm as commonly used for calculating the word error rate (WER)
+        :parameters:
+        - tar: target output
+        - out: network output (decoded)
+    :returns:
+        - phoneme error rate
     """
     # initialize dynammic programming matrix
     D = np.zeros((len(tar)+1)*(len(out)+1), dtype=np.uint16)
@@ -256,6 +303,57 @@ def calcPER(tar, out):
 
 
 
+
+def categorical_crossentropy_batch(coding_dist, true_dist, mask):
+    """
+    Apply categorical crossentropy and zero out entropies, where mask = 0.
+    Compare with theano.tensor.nnet.categorical_crossentropy.
+    The first 2 inputs for this function are the same but with an additional dimension (first) for batch_size
+    The last parameter is the mask that will be applied to calculate cross_entropy only for valid timesteps
+    
+    :parameters:
+        - coding_dist: model output distribution, dimensions = batch_size x output_seq_length x output_dim
+        - true_dist: target output sequence, dimensions = batch_size x output_seq_length
+        - mask: mask for marking valid timesteps, dimensions = batch_size x output_seq_length
+    :returns:
+        - cross_entropy: mean of cross_entropys for each timestep, multiplied with batch_size for better scaling
+    """
+    shapes = coding_dist.shape
+    cross_entropy = \
+        (theano.tensor.nnet.categorical_crossentropy( \
+            coding_dist.clip(1e-10,1-1e-10). \
+                reshape([shapes[0]*shapes[1], shapes[2]]), true_dist.reshape([shapes[0]*shapes[1]])) \
+        ) \
+        * mask.reshape([shapes[0]*shapes[1]])
+    return cross_entropy.mean()*shapes[0]
+    
+    
+    
+    
+# TODOs: move or remove following functions ****************************************************************
+def createLogger():
+    """
+    MOVE THIS INTO OTHER FILE - UTIL OR SOMETHING SIMILAR...
+    """
+    logger = logging.getLogger('logger')
+    while logger.root.handlers:
+        logger.root.removeHandler(logger.root.handlers[0])
+    logger.setLevel(logging.DEBUG)
+    fh = logging.FileHandler('testlog.log')
+    fh.setLevel(logging.DEBUG)
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(message)s')
+    ch.setFormatter(formatter)
+    fh.setFormatter(formatter)
+    if not logger.handlers:
+        logger.addHandler(ch) # add streamHandler
+        logger.addHandler(fh) # and fileHandler
+        
+    return logger
+    
+    
+    
 def beamsearch(cost, extra, initial, B, E):
 	"""A breadth-first beam search.
 	B = max number of options to keep,
@@ -288,29 +386,4 @@ def beamsearch(cost, extra, initial, B, E):
 				nlist.append((newcost, t))
 		hlist = nlist
 	o.sort()
-	return o    
- 
-
-
-
- 
-def createLogger():
-    """
-    MOVE THIS INTO OTHER FILE - UTIL OR SOMETHING SIMILAR...
-    """
-    logger = logging.getLogger('logger')
-    while logger.root.handlers:
-        logger.root.removeHandler(logger.root.handlers[0])
-    logger.setLevel(logging.DEBUG)
-    fh = logging.FileHandler('testlog.log')
-    fh.setLevel(logging.DEBUG)
-    ch = logging.StreamHandler()
-    ch.setLevel(logging.DEBUG)
-    formatter = logging.Formatter('%(message)s')
-    ch.setFormatter(formatter)
-    fh.setFormatter(formatter)
-    if not logger.handlers:
-        logger.addHandler(ch) # add streamHandler
-        logger.addHandler(fh) # and fileHandler
-        
-    return logger
+	return o      

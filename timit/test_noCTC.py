@@ -28,7 +28,9 @@ BATCH_SIZE = 50
 N_EPOCHS = 50
 LEARNING_RATE = 1e-3
 EPOCH_SIZE = 100 
-GRAD_CLIP = 25 # clip large gradients in order to prevent exploding gradients
+# TODO: which value appropriate for gradient clipping?! Values above 0.1 do not prevent gradient exploding,
+# make sure value is not too small... 0.0001 "seems to work"...
+GRAD_CLIP = 0.0001 # clip large gradients in order to prevent exploding gradients,
 GRADIENT_STEPS = -1 # defines how many timesteps are used for error backpropagation. -1 = all
 
 # Network size parameters

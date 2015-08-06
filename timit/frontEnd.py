@@ -386,143 +386,6 @@ def getLongestSequence(train_set, val_set):
 
 
 
-
-def mainNoCTC():
-    """
-    Basically the same as main, but creates target outputs for every timestep.
-    And writes to file timit_data_noCTC.pkl
-    To run this "alternative" main function, just change the call of main() to mainNoCTC
-    on the very bottom of this script
-    """
-# ********************************* Configurations ************************************   
-    # 41 filters, 
-    rootdir = '../../TIMIT/timit'
-    storePath = '../data/timit_data_noCTC.pkl'
-    winlen, winstep, nfilt, lowfreq, highfreq, preemph, winSzForDelta, samplerate = \
-    0.025,  0.01,   40,     200,     8000,     0.97,    2,             16000    
-     
-    nfft = nextpow2(samplerate*winlen) 
-    n_speaker_val = 50 
-# *************************************************************************************
-    
-    
-    
-# *********************************** create logger ***********************************
-    logger = logging.getLogger('')
-    logger.setLevel(logging.DEBUG)
-# *************************************************************************************
-    
-
-# ******* get paths --> extract features from datasets --> normalize datasets *********    
-    logger.info('Extract paths from database and split train set into train+val...')
-    wav_train, wav_val, wav_test, phn_train, phn_val, phn_test = getTrainValTestPaths(rootdir,n_speaker_val)
-    
-    logger.info('Calc features from training, val and test data (given path) ...')
-    X_train = getAllFeatures(wav_train, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph,winSzForDelta)
-    X_val = getAllFeatures(wav_val, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph,winSzForDelta)
-    X_test = getAllFeatures(wav_test, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph,winSzForDelta)
-    
-    logger.info('calculate mean and var from training-set --> normalise training-, test- and val-set ...')
-    X_train, X_val, X_test, mean_vector, std_vect = normaliseFeatureVectors(X_train, X_val, X_test)
-# get targets
-    logger.info('Extract target Sequences...')
-    labelSequence_train = getTargetsEachTimestep(phn_train, [len(s) for s in X_train], winstep, samplerate, winlen)
-    labelSequence_val = getTargetsEachTimestep(phn_val, [len(s) for s in X_val], winstep, samplerate, winlen)
-    labelSequence_test = getTargetsEachTimestep(phn_test, [len(s) for s in X_test], winstep, samplerate, winlen)
-
-    phonemeDic = getPhonemeDictionary()
-
-    logger.info('convert test and train targets into numbers ...')  
-    y_train = convertPhoneSequences(labelSequence_train, phonemeDic)
-    y_val = convertPhoneSequences(labelSequence_val, phonemeDic)
-    y_test = convertPhoneSequences(labelSequence_test, phonemeDic)
-#**************************************************************************************
-#**************************** save datasets *******************************************
-    with open(storePath, 'wb') as output:
-        pkl.dump(X_train, output, pkl.HIGHEST_PROTOCOL)
-        pkl.dump(X_val, output, pkl.HIGHEST_PROTOCOL)
-        pkl.dump(X_test, output, pkl.HIGHEST_PROTOCOL)
-        pkl.dump(y_train, output, pkl.HIGHEST_PROTOCOL)
-        pkl.dump(y_val, output, pkl.HIGHEST_PROTOCOL)
-        pkl.dump(y_test, output, pkl.HIGHEST_PROTOCOL)   
-
-
-
-def main():
-    '''
-    Specify parameters in 'Configurations' below, the filepath to timit root and the
-    filepath to store the extracted data
-    The script extracts training, test and validation input and target data and saves
-    it to timit_data.pkl (path specified below)
-    You will need PySoundFile to read TIMIT .wav files and python_speech_features
-    
-    For PySoundFile see: 
-        See: http://pysoundfile.readthedocs.org/en/0.7.0/ and
-        https://github.com/bastibe/PySoundFile
-    For see python_speech_features see:
-        http://python-speech-features.readthedocs.org/en/latest/ or
-        https://github.com/jameslyons/python_speech_features
-    '''
-# ********************************* Configurations ************************************   
-    rootdir = '../../TIMIT/timit'
-    storePath = '../data/timit_data.pkl'
-    winlen, winstep, nfilt, lowfreq, highfreq, preemph, winSzForDelta, samplerate = \
-    0.025,  0.01,   40,     200,     8000,     0.97,    2,             16000    
-     
-    nfft = nextpow2(samplerate*winlen) 
-    n_speaker_val = 50 
-# *************************************************************************************
-    
-    
-    
-# *********************************** create logger ***********************************
-    logger = logging.getLogger('')
-    logger.setLevel(logging.DEBUG)
-# *************************************************************************************
-    
-
-# ******* get paths --> extract features from datasets --> normalize datasets *********    
-    logger.info('Extract paths from database and split train set into train+val...')
-    wav_train, wav_val, wav_test, phn_train, phn_val, phn_test = getTrainValTestPaths(rootdir,n_speaker_val)
-    
-    logger.info('Calc features from training, val and test data (given path) ...')
-    X_train = getAllFeatures(wav_train, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph,winSzForDelta)
-    X_val = getAllFeatures(wav_val, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph,winSzForDelta)
-    X_test = getAllFeatures(wav_test, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph,winSzForDelta)
-    
-    logger.info('calculate mean and var from training-set --> normalise training-, test- and val-set ...')
-    X_train, X_val, X_test, mean_vector, std_vect = normaliseFeatureVectors(X_train, X_val, X_test)
-# get targets
-    logger.info('Extract target Sequences...')
-    labelSequence_train = getTargets(phn_train)
-    labelSequence_val = getTargets(phn_val)
-    labelSequence_test = getTargets(phn_test)
-
-
-    logger.info('convert test and train targets into numbers ...')  
-    phonemeDic = getPhonemeDictionary()
-    y_train = convertPhoneSequences(labelSequence_train, phonemeDic)
-    y_val = convertPhoneSequences(labelSequence_val, phonemeDic)
-    y_test = convertPhoneSequences(labelSequence_test, phonemeDic)
-#**************************************************************************************
-#**************************** save datasets *******************************************
-    with open(storePath, 'wb') as output:
-        pkl.dump(X_train, output, pkl.HIGHEST_PROTOCOL)
-        pkl.dump(X_val, output, pkl.HIGHEST_PROTOCOL)
-        pkl.dump(X_test, output, pkl.HIGHEST_PROTOCOL)
-        pkl.dump(y_train, output, pkl.HIGHEST_PROTOCOL)
-        pkl.dump(y_val, output, pkl.HIGHEST_PROTOCOL)
-        pkl.dump(y_test, output, pkl.HIGHEST_PROTOCOL)
-    
-# read in data in other script with the following lines
-    
-#    with open(storePath, 'rb') as input:
-#        X_train = pkl.load(input)
-#        X_val = pkl.load(input)
-#        X_test = pkl.load(input)
-#        y_train = pkl.load(input)
-#        y_val = pkl.load(input)
-#        y_test = pkl.load(input)
     
  
 
@@ -709,6 +572,176 @@ def CreateNetCDF():
         print '\n\nfail test\n\n'
         pass
     test.close()  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ************ The below will be deleted later ***********************
+
+
+
+
+def CreatePklNoCTC():
+    """
+    DEPRECATED - SWITCHED TO NETCDF4 - WILL BE DELETED
+    Basically the same as main, but creates target outputs for every timestep.
+    And writes to file timit_data_noCTC.pkl
+    To run this "alternative" main function, just change the call of main() to mainNoCTC
+    on the very bottom of this script
+    """
+# ********************************* Configurations ************************************   
+    # 41 filters, 
+    rootdir = '../../TIMIT/timit'
+    storePath = '../data/timit_data_noCTC.pkl'
+    winlen, winstep, nfilt, lowfreq, highfreq, preemph, winSzForDelta, samplerate = \
+    0.025,  0.01,   40,     200,     8000,     0.97,    2,             16000    
+     
+    nfft = nextpow2(samplerate*winlen) 
+    n_speaker_val = 50 
+# *************************************************************************************
+    
+    
+    
+# *********************************** create logger ***********************************
+    logger = logging.getLogger('')
+    logger.setLevel(logging.DEBUG)
+# *************************************************************************************
+    
+
+# ******* get paths --> extract features from datasets --> normalize datasets *********    
+    logger.info('Extract paths from database and split train set into train+val...')
+    wav_train, wav_val, wav_test, phn_train, phn_val, phn_test = getTrainValTestPaths(rootdir,n_speaker_val)
+    
+    logger.info('Calc features from training, val and test data (given path) ...')
+    X_train = getAllFeatures(wav_train, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph,winSzForDelta)
+    X_val = getAllFeatures(wav_val, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph,winSzForDelta)
+    X_test = getAllFeatures(wav_test, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph,winSzForDelta)
+    
+    logger.info('calculate mean and var from training-set --> normalise training-, test- and val-set ...')
+    X_train, X_val, X_test, mean_vector, std_vect = normaliseFeatureVectors(X_train, X_val, X_test)
+# get targets
+    logger.info('Extract target Sequences...')
+    labelSequence_train = getTargetsEachTimestep(phn_train, [len(s) for s in X_train], winstep, samplerate, winlen)
+    labelSequence_val = getTargetsEachTimestep(phn_val, [len(s) for s in X_val], winstep, samplerate, winlen)
+    labelSequence_test = getTargetsEachTimestep(phn_test, [len(s) for s in X_test], winstep, samplerate, winlen)
+
+    phonemeDic = getPhonemeDictionary()
+
+    logger.info('convert test and train targets into numbers ...')  
+    y_train = convertPhoneSequences(labelSequence_train, phonemeDic)
+    y_val = convertPhoneSequences(labelSequence_val, phonemeDic)
+    y_test = convertPhoneSequences(labelSequence_test, phonemeDic)
+#**************************************************************************************
+#**************************** save datasets *******************************************
+    with open(storePath, 'wb') as output:
+        pkl.dump(X_train, output, pkl.HIGHEST_PROTOCOL)
+        pkl.dump(X_val, output, pkl.HIGHEST_PROTOCOL)
+        pkl.dump(X_test, output, pkl.HIGHEST_PROTOCOL)
+        pkl.dump(y_train, output, pkl.HIGHEST_PROTOCOL)
+        pkl.dump(y_val, output, pkl.HIGHEST_PROTOCOL)
+        pkl.dump(y_test, output, pkl.HIGHEST_PROTOCOL)   
+
+
+
+def CreatePkl():
+    '''
+    DEPRECATED - SWITCHED TO NETCDF4 - WILL BE DELETED
+    Specify parameters in 'Configurations' below, the filepath to timit root and the
+    filepath to store the extracted data
+    The script extracts training, test and validation input and target data and saves
+    it to timit_data.pkl (path specified below)
+    You will need PySoundFile to read TIMIT .wav files and python_speech_features
+    
+    For PySoundFile see: 
+        See: http://pysoundfile.readthedocs.org/en/0.7.0/ and
+        https://github.com/bastibe/PySoundFile
+    For see python_speech_features see:
+        http://python-speech-features.readthedocs.org/en/latest/ or
+        https://github.com/jameslyons/python_speech_features
+    '''
+# ********************************* Configurations ************************************   
+    rootdir = '../../TIMIT/timit'
+    storePath = '../data/timit_data.pkl'
+    winlen, winstep, nfilt, lowfreq, highfreq, preemph, winSzForDelta, samplerate = \
+    0.025,  0.01,   40,     200,     8000,     0.97,    2,             16000    
+     
+    nfft = nextpow2(samplerate*winlen) 
+    n_speaker_val = 50 
+# *************************************************************************************
+    
+    
+    
+# *********************************** create logger ***********************************
+    logger = logging.getLogger('')
+    logger.setLevel(logging.DEBUG)
+# *************************************************************************************
+    
+
+# ******* get paths --> extract features from datasets --> normalize datasets *********    
+    logger.info('Extract paths from database and split train set into train+val...')
+    wav_train, wav_val, wav_test, phn_train, phn_val, phn_test = getTrainValTestPaths(rootdir,n_speaker_val)
+    
+    logger.info('Calc features from training, val and test data (given path) ...')
+    X_train = getAllFeatures(wav_train, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph,winSzForDelta)
+    X_val = getAllFeatures(wav_val, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph,winSzForDelta)
+    X_test = getAllFeatures(wav_test, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph,winSzForDelta)
+    
+    logger.info('calculate mean and var from training-set --> normalise training-, test- and val-set ...')
+    X_train, X_val, X_test, mean_vector, std_vect = normaliseFeatureVectors(X_train, X_val, X_test)
+# get targets
+    logger.info('Extract target Sequences...')
+    labelSequence_train = getTargets(phn_train)
+    labelSequence_val = getTargets(phn_val)
+    labelSequence_test = getTargets(phn_test)
+
+
+    logger.info('convert test and train targets into numbers ...')  
+    phonemeDic = getPhonemeDictionary()
+    y_train = convertPhoneSequences(labelSequence_train, phonemeDic)
+    y_val = convertPhoneSequences(labelSequence_val, phonemeDic)
+    y_test = convertPhoneSequences(labelSequence_test, phonemeDic)
+#**************************************************************************************
+#**************************** save datasets *******************************************
+    with open(storePath, 'wb') as output:
+        pkl.dump(X_train, output, pkl.HIGHEST_PROTOCOL)
+        pkl.dump(X_val, output, pkl.HIGHEST_PROTOCOL)
+        pkl.dump(X_test, output, pkl.HIGHEST_PROTOCOL)
+        pkl.dump(y_train, output, pkl.HIGHEST_PROTOCOL)
+        pkl.dump(y_val, output, pkl.HIGHEST_PROTOCOL)
+        pkl.dump(y_test, output, pkl.HIGHEST_PROTOCOL)
+    
+# read in data in other script with the following lines
+    
+#    with open(storePath, 'rb') as input:
+#        X_train = pkl.load(input)
+#        X_val = pkl.load(input)
+#        X_test = pkl.load(input)
+#        y_train = pkl.load(input)
+#        y_val = pkl.load(input)
+#        y_test = pkl.load(input)
+
+
+
+
+
+
+
+
+
+
+
+
 
 if __name__ == '__main__':
     CreateNetCDF()

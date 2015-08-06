@@ -13,3 +13,9 @@ requirements:
 - Use frontEnd.py' function CreateNetCDF(default when running frontEnd) to generate netCDF4 data file with preprocessed timit data. You will need to adjust timit root path and data store path.
 - Run testNoCTC.py for training a deep BLSTM on preprocessed TIMIT data without CTC, thus on each frame. Need HMM, or CTC algorithm for end-to-end training
 - test.py for training deep BLSTM with CTC is deprecated atm, don't use.
+
+
+my TODO:
+1) integrate CTC
+2) beamsearch decoding of networks output sequences
+3) remapping from 61 phonemes to 39 "for scoring"

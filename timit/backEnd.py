@@ -193,11 +193,11 @@ def genModel(batch_size, max_input_seq_len, input_dim, output_dim, gradient_step
     l_mask = lasagne.layers.InputLayer(shape=(batch_size, max_input_seq_len))
 
     blstm0 = BLSTMConcatLayer(incoming=l_in, mask_input=l_mask, 
-        num_units=lstm_hidden_units[0], gradient_steps=gradient_steps, grad_clipping=grad_clip, backwards=False)
+        num_units=lstm_hidden_units[0], gradient_steps=gradient_steps, grad_clipping=grad_clip)
     blstm1 = BLSTMConcatLayer(incoming=blstm0, mask_input=l_mask,
-        num_units=lstm_hidden_units[1], gradient_steps=gradient_steps, grad_clipping=grad_clip, backwards=False)
+        num_units=lstm_hidden_units[1], gradient_steps=gradient_steps, grad_clipping=grad_clip)
     blstm2 = BLSTMConcatLayer(incoming=blstm1, mask_input=l_mask, 
-        num_units=lstm_hidden_units[2], gradient_steps=gradient_steps, grad_clipping=grad_clip, backwards=False)
+        num_units=lstm_hidden_units[2], gradient_steps=gradient_steps, grad_clipping=grad_clip)
         
 # Need to reshape hidden LSTM layers --> Combine batch size and sequence length for the output layer 
 # Otherwise, DenseLayer would treat sequence length as feature dimension        

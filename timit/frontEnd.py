@@ -11,7 +11,6 @@ import glob
 import os
 import soundfile as sf
 import csv
-import itertools
 import random
 import logging
 import pickle as pkl
@@ -391,8 +390,9 @@ def getLongestSequence(train_set, val_set):
 
 def CreateNetCDF():
 
-    rootdir = '../../TIMIT/timit'
-    dataPath = '../data/'
+    rootdir = '../../TIMIT/timit' # root directory of timit
+    dataPath = '../data/' # store Path
+    
     winlen, winstep, nfilt, lowfreq, highfreq, preemph, winSzForDelta, samplerate = \
     0.025,  0.01,   40,     200,     8000,     0.97,    2,             16000           
     nfft = nextpow2(samplerate*winlen) 
@@ -587,9 +587,7 @@ def CreateNetCDF():
 
 
 
-# ************ The below will be deleted later ***********************
-
-
+# TODOs: move or remove following functions ****************************************************************
 
 
 def CreatePklNoCTC():

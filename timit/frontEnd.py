@@ -162,7 +162,7 @@ def getAllFeatures(wavFileList, samplerate, winlen, winstep, nfilt,nfft, lowfreq
     
 def getTargets(phnFilesList):
     '''
-    This function is used to get read the phoneme sequences from TIMIT .phn files
+    This function is used to read the phoneme sequences from TIMIT .phn files
     :parameters:
         - phnFilesList: list of filepaths to .phn files
     :returns:
@@ -388,7 +388,7 @@ def getLongestSequence(train_set, val_set):
     
  
 
-def CreateNetCDF():
+def CreateNetCDF(useCTC):
 
     rootdir = '../../TIMIT/timit' # root directory of timit
     dataPath = '../data/' # store Path
@@ -406,9 +406,14 @@ def CreateNetCDF():
     
     X_train, X_val, X_test, mean_vector, std_vect = normaliseFeatureVectors(X_train, X_val, X_test)
     
-    labelSequence_train = getTargetsEachTimestep(phn_train, [len(s) for s in X_train], winstep, samplerate, winlen)
-    labelSequence_val = getTargetsEachTimestep(phn_val, [len(s) for s in X_val], winstep, samplerate, winlen)
-    labelSequence_test = getTargetsEachTimestep(phn_test, [len(s) for s in X_test], winstep, samplerate, winlen)
+    if useCTC:
+        labelSequence_train = getTargets(phn_train)
+        labelSequence_val = getTargets(phn_val)
+        labelSequence_test = getTargets(phn_test)
+    else:
+        labelSequence_train = getTargetsEachTimestep(phn_train, [len(s) for s in X_train], winstep, samplerate, winlen)
+        labelSequence_val = getTargetsEachTimestep(phn_val, [len(s) for s in X_val], winstep, samplerate, winlen)
+        labelSequence_test = getTargetsEachTimestep(phn_test, [len(s) for s in X_test], winstep, samplerate, winlen)
     
     phonemeDic = getPhonemeDictionary()
     
@@ -424,9 +429,12 @@ def CreateNetCDF():
     numTimesteps_test = sum(len(s) for s in X_test)
     inputPattSize = 123
     maxSeqTagLength = 100 # This will be the name of the files. path from timit to file
-    numLabels = 61 # CHANGE TO 62 IF USE CTC and need blank symbol
     maxLabelLength = getLongestSequence(y_train,y_val)
-
+    maxInputLength = getLongestSequence(X_train,X_val)
+    if useCTC:
+        numLabels = 62
+    else:
+        numLabels = 61 
 
     train = Dataset(dataPath+'train.nc', 'w', format='NETCDF4')
     try:
@@ -437,10 +445,13 @@ def CreateNetCDF():
         train.createDimension('numLabels', numLabels)
         train.createDimension('maxLabelLength', maxLabelLength)
         train.createDimension('maxSeqTagLength', maxSeqTagLength)
+        train.createDimension('maxInputLength', maxInputLength)
         # create variables   
         seqTags = train.createVariable('seqTags','S1',('numSeqs', 'maxSeqTagLength',))
         seqLengths = train.createVariable('seqLengths','i4',('numSeqs',))
         seqStartIndices = train.createVariable('seqStartIndices','i4',('numSeqs',))
+        labelLengths = train.createVariable('labelLengths','i4',('numSeqs',))
+        labelStartIndices = train.createVariable('labelStartIndices','i4',('numSeqs',))
         inputs = train.createVariable('inputs','f4',('numTimesteps','inputPattSize',))
         targetClasses = train.createVariable('targetClasses','i4',('numTimesteps',))
         
@@ -453,14 +464,8 @@ def CreateNetCDF():
             seqTags[index,0:tmp_str.shape[1]] = tmp_str
             index += 1
            
-#        index = 0
-#        for s in wav_train:
-#            tmp_str = s.split('train',1)[1]
-#            for index_char in range(len(tmp_str)):
-#                seqTags[index,index_char] = tmp_str[index_char]
-#            index += 1    
-           
         seqLengths[:] = [len(s) for s in X_train]
+        labelLengths[:] = [len(s) for s in y_train]
             
         index = 0
         for counter, s in enumerate(X_train):
@@ -470,9 +475,9 @@ def CreateNetCDF():
             
             
         index = 0     
-        # targets for every timestep --> no CTC
-        for s in y_train:
+        for counter, s in enumerate(y_train):
             targetClasses[index:index+len(s)] = s
+            labelStartIndices[counter] = index
             index += len(s) 
     
     except:
@@ -492,10 +497,13 @@ def CreateNetCDF():
         val.createDimension('numLabels', numLabels)
         val.createDimension('maxLabelLength', maxLabelLength)
         val.createDimension('maxSeqTagLength', maxSeqTagLength)
+        val.createDimension('maxInputLength', maxInputLength)
         # create variables   
         seqTags = val.createVariable('seqTags','S1',('numSeqs', 'maxSeqTagLength',))
         seqLengths = val.createVariable('seqLengths','i4',('numSeqs',))
         seqStartIndices = train.createVariable('seqStartIndices','i4',('numSeqs',))
+        labelLengths = train.createVariable('labelLengths','i4',('numSeqs',))
+        labelStartIndices = train.createVariable('labelStartIndices','i4',('numSeqs',))
         inputs = val.createVariable('inputs','f4',('numTimesteps','inputPattSize',))
         targetClasses = val.createVariable('targetClasses','i4',('numTimesteps',))
         
@@ -509,6 +517,7 @@ def CreateNetCDF():
             index += 1
                  
         seqLengths[:] = [len(s) for s in X_val]
+        labelLengths[:] = [len(s) for s in y_val]
         
         index = 0
         for counter,s in enumerate(X_val):
@@ -518,8 +527,9 @@ def CreateNetCDF():
             
         index = 0 
         # targets for every timestep --> no CTC
-        for s in y_val:
+        for counter, s in enumerate(y_val):
             targetClasses[index:index+len(s)] = s
+            labelStartIndices[counter] = index
             index += len(s) 
     
     except:
@@ -538,10 +548,13 @@ def CreateNetCDF():
         test.createDimension('numLabels', numLabels)
         test.createDimension('maxLabelLength', maxLabelLength)
         test.createDimension('maxSeqTagLength', maxSeqTagLength)
+        test.createDimension('maxInputLength', maxInputLength)
         # create variables   
         seqTags = test.createVariable('seqTags','S1',('numSeqs', 'maxSeqTagLength',))
         seqLengths = test.createVariable('seqLengths','i4',('numSeqs',))
         seqStartIndices = train.createVariable('seqStartIndices','i4',('numSeqs',))
+        labelLengths = train.createVariable('labelLengths','i4',('numSeqs',))
+        labelStartIndices = train.createVariable('labelStartIndices','i4',('numSeqs',))
         inputs = test.createVariable('inputs','f4',('numTimesteps','inputPattSize',))
         targetClasses = test.createVariable('targetClasses','i4',('numTimesteps',))
         
@@ -555,6 +568,7 @@ def CreateNetCDF():
             index += 1
                  
         seqLengths[:] = [len(s) for s in X_test]
+        labelLengths[:] = [len(s) for s in y_test]
             
         index = 0
         for counter,s in enumerate(X_test):
@@ -564,8 +578,9 @@ def CreateNetCDF():
                     
         index = 0       
         # targets for every timestep --> no CTC
-        for s in y_test:
+        for counter, s in enumerate(y_test):
             targetClasses[index:index+len(s)] = s
+            labelStartIndices[counter] = index
             index += len(s) 
     
     except:
@@ -742,4 +757,6 @@ def CreatePkl():
 
 
 if __name__ == '__main__':
-    CreateNetCDF()
+    useCTC = True
+    print "using CTC: "+str(useCTC)
+    CreateNetCDF(useCTC)

@@ -48,7 +48,7 @@ def makeRandomBatchesFromNetCDF(rootgrp, batch_size):
     """
     numSeqs = len(rootgrp.dimensions['numSeqs'])
     n_batches = numSeqs//batch_size
-    input_sequence_length = len(rootgrp.dimensions['maxLabelLength'])
+    input_sequence_length = len(rootgrp.dimensions['maxInputLength'])
     output_sequence_length = len(rootgrp.dimensions['maxLabelLength'])
     inputPattSize = len(rootgrp.dimensions['inputPattSize'])
     
@@ -64,17 +64,21 @@ def makeRandomBatchesFromNetCDF(rootgrp, batch_size):
     
     # get as many sequences as possible: e.g. 1520 sequences with batch size 50 --> 30*50 batches, dump 20
     selected_sequences = np.sort(np.random.choice(numSeqs,n_batches*batch_size, False))
-    start_index = rootgrp.variables['seqStartIndices'][selected_sequences]
+    
+    seq_start_index = rootgrp.variables['seqStartIndices'][selected_sequences]
     seq_len = rootgrp.variables['seqLengths'][selected_sequences]
-    for c, (si,sl) in enumerate(zip(start_index,seq_len)):
+    for c, (si,sl) in enumerate(zip(seq_start_index,seq_len)):
         X_m = rootgrp.variables['inputs'][si:si+sl,:]
         X_batch[c, :X_m.shape[0],:] = X_m
         X_mask[c, :X_m.shape[0]] = 1.0
-            
-        # similar with y
+        
+    label_start_index = rootgrp.variables['labelStartIndices'][selected_sequences]
+    label_len = rootgrp.variables['labelLengths'][selected_sequences]
+    for c, (si,sl) in enumerate(zip(label_start_index,label_len)):          
         y_m = rootgrp.variables['targetClasses'][si:si+sl]
         y_batch[c, :y_m.shape[0]] = y_m
         y_mask[c, :y_m.shape[0]] = 1.0
+        
     # shuffle sequences, reshape and convert to theano float32
     shuffle = np.random.choice(n_batches*batch_size,n_batches*batch_size, False)
     return X_batch[shuffle].reshape([n_batches, batch_size, input_sequence_length, inputPattSize]).astype(theano.config.floatX), \

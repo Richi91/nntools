@@ -12,11 +12,8 @@ import os
 import soundfile as sf
 import csv
 import random
-import logging
-import pickle as pkl
 import netCDF4
 from netCDF4 import Dataset
-
 
 def nextpow2(i):
     '''
@@ -30,7 +27,8 @@ def nextpow2(i):
     n = 1
     while n < i: n *= 2
     return n
-    
+ 
+   
 def one_hot(labels, n_classes):
     '''
     Converts an array of label integers to a one-hot matrix encoding
@@ -48,6 +46,7 @@ def one_hot(labels, n_classes):
     one_hot[range(labels.shape[0]), labels] = True
     return one_hot    
 
+
 def delta_feat(feat, deltawin):
     '''
     Computes the derivatives of a feature-matrix wrt. 1st dimension. 
@@ -63,16 +62,20 @@ def delta_feat(feat, deltawin):
         - deltafeat: np.ndarray, dtype=float
             deltas of the input features
     '''
-    zeros = np.zeros([deltawin,feat.shape[1]])
+    # init deltafeat with zeros, 2xdeltawin more timesteps, because on both ends needed for calculating differences
     deltafeat = np.zeros([feat.shape[0]+2*deltawin,feat.shape[1]])
-    padfeat = np.concatenate((zeros,feat,zeros),axis=0)
-    norm = 0.0 
-    for it in range(1,deltawin+1):
-        norm += it**2
-        deltafeat+=it*(np.roll(padfeat,-2,axis=0)-np.roll(padfeat,2,axis=0))
-        deltafeat /= 2*norm;
-    return deltafeat[deltawin:padfeat.shape[0]-deltawin,:]
+    # repeat the values at the borders is default behaviour of HTK --> adapt it here aswell instead of zero padding
+    pad_bot = np.tile(feat[0,:],(deltawin,1))
+    pad_top = np.tile(feat[-1,:],(deltawin,1))
+    padfeat = np.concatenate((pad_bot,feat,pad_top),axis=0)
     
+    norm = 2.0 * sum([it**2 for it in range(1, deltawin+1)])
+    deltafeat = sum([it*(np.roll(padfeat,-2,axis=0)-np.roll(padfeat,2,axis=0)) for it in range(1, deltawin+1)])
+    
+    deltafeat /= norm;
+    return deltafeat[deltawin:padfeat.shape[0]-deltawin,:]
+ 
+   
 def getFeatures(signal, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph,winSzForDelta):
     '''
     Computes filterbank energies on a mel scale + total energy using 'fbank'
@@ -115,12 +118,16 @@ def getFeatures(signal, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfr
             +1 for energy, *3 because of deltas
             
     '''
+    # calculate fbank energies and total energy
     feat,energy = fbank(signal, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph)
     feat = np.column_stack((energy,feat))
+    # calculate delta and acceleration
     deltafeat = delta_feat(feat, winSzForDelta)
     deltadeltafeat = delta_feat(deltafeat, winSzForDelta)
+    # stack features + delta + acceleration
     features = np.concatenate((feat,deltafeat,deltadeltafeat),axis=1)
     return features
+
 
 def getAllFeatures(wavFileList, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph,winSzForDelta):
     '''
@@ -152,6 +159,7 @@ def getAllFeatures(wavFileList, samplerate, winlen, winstep, nfilt,nfft, lowfreq
     featureList = []
     for f in wavFileList:
         signal, _ = sf.read(f)
+        # UNCOMMENTED, BECAUSE NORMALIZATION NOT RAW SPEECH SIG BUT FINAL FEATURES (MEAN + VAR NORMALIZATION)
         ## equalize rms --> same power in signals
         #rms = np.sqrt(np.mean(np.square(signal)))
         #featureList.append(getFeatures
@@ -159,6 +167,7 @@ def getAllFeatures(wavFileList, samplerate, winlen, winstep, nfilt,nfft, lowfreq
         featureList.append(getFeatures
             (signal, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph,winSzForDelta)) 
     return np.array(featureList)
+
     
 def getTargets(phnFilesList):
     '''
@@ -178,6 +187,7 @@ def getTargets(phnFilesList):
                 tmpPhoneSeq.append(phone)
             labelSequenceList.append(tmpPhoneSeq)
     return labelSequenceList
+
 
 def getTargetsEachTimestep(phnFilesList, listSequenceLengths, winstep, fs, winLen):
     '''
@@ -223,6 +233,7 @@ def getTargetsEachTimestep(phnFilesList, listSequenceLengths, winstep, fs, winLe
         labelSequenceList.append(tmpPhoneSeq)
     return labelSequenceList      
 
+
 def getPhonemeDictionary():
     '''
     Use hard coded phoneme dict for timit found on: 
@@ -239,26 +250,6 @@ def getPhonemeDictionary():
     phonemeValues = range(0,61)
     phonemeDic = dict(zip(phonemes, phonemeValues))
     return phonemeDic
-    
-    
-#def getPhonemeDictionary(phnFilesList):
-#    '''
-#    In order to determine the full phoneme dictionary, this function reads
-#    in a list of filepaths to .phn files (TIMIT dataset) and looks for
-#    every phoneme in these .phn files. --> e.g. 61 phonemes in TIMIT.
-#    With all phonemes, a dictionary is used to assign each phoneme to a digit,
-#    --> e.g. 0..60
-#    :parameters:
-#        - phnFilesList: list of filepaths to .phn files
-#    :returns:
-#        - phonemeDic: dictionary
-#            keys are phonemes, values are digits from 0..n
-#    '''
-#    labelSequenceList = getTargets(phnFilesList)
-#    phonemes = sorted(list(set(itertools.chain(*labelSequenceList))))
-#    phonemeValues = range(len(phonemes))
-#    phonemeDic = dict(zip(phonemes, phonemeValues))
-#    return phonemeDic
     
     
 def convertPhoneSequences(labelSequenceList,phonemeDic):
@@ -315,6 +306,7 @@ def getTrainValTestPaths(timitRootDir,numSpeakersVal):
     
     wav_train = glob.glob(timitRootDir+'/train/'+'*/*/*.wav')
     phn_train = []
+    
     wav_test = glob.glob(timitRootDir+'/test/'+'*/*/*.wav')
     phn_test = []
     
@@ -325,6 +317,7 @@ def getTrainValTestPaths(timitRootDir,numSpeakersVal):
             wav_val.append(f)
             wav_train.remove(f)
             
+    # remove .wav and append .phn for phoneme files        
     for f in wav_train:
         phn_train.append(os.path.splitext(f)[0]+'.phn')
     for f in wav_val:
@@ -333,6 +326,7 @@ def getTrainValTestPaths(timitRootDir,numSpeakersVal):
         phn_test.append(os.path.splitext(f)[0]+'.phn')   
  
     return wav_train, wav_val, wav_test, phn_train, phn_val, phn_test
+
 
 def normaliseFeatureVectors(x_train, x_val, x_test):
     '''
@@ -359,8 +353,8 @@ def normaliseFeatureVectors(x_train, x_val, x_test):
     stacked = np.vstack(x_train)
     mean_vector = np.mean(stacked,axis=0)
     std_vector = np.sqrt(np.var(stacked,axis=0))
-    # normalize to zero mean and variance 1 and convert to float32 for GPU. convert after normalization
-    # to ensure no precision is wasted.
+    # normalize to zero mean and variance 1 and convert to float32 for GPU. 
+    # convert after normalization to ensure no precision is wasted.
     for it in range(len(x_train)):
         x_train[it] = (np.divide(np.subtract(x_train[it],mean_vector),std_vector)).astype(np.float32)
     for it in range(len(x_val)):
@@ -384,17 +378,17 @@ def getLongestSequence(train_set, val_set):
              max([X.shape[0] for X in val_set]))
 
 
-
-    
- 
-
 def CreateNetCDF(useCTC):
 
     rootdir = '../../TIMIT/timit' # root directory of timit
     dataPath = '../data/' # store Path
+    if useCTC:
+        dataPath+= 'CTC/'
+    else:
+        dataPath+= 'noCTC/'
     
     winlen, winstep, nfilt, lowfreq, highfreq, preemph, winSzForDelta, samplerate = \
-    0.025,  0.01,   40,     200,     8000,     0.97,    2,             16000           
+    0.025,  0.01,   40,     300,     3400,     0.97,    2,             16000           
     nfft = nextpow2(samplerate*winlen) 
     n_speaker_val = 50 
     
@@ -434,7 +428,8 @@ def CreateNetCDF(useCTC):
     if useCTC:
         numLabels = 62
     else:
-        numLabels = 61 
+    #    numLabels = 61
+        numLabels = 62
 
     train = Dataset(dataPath+'train.nc', 'w', format='NETCDF4')
     try:
@@ -449,11 +444,12 @@ def CreateNetCDF(useCTC):
         # create variables   
         seqTags = train.createVariable('seqTags','S1',('numSeqs', 'maxSeqTagLength',))
         seqLengths = train.createVariable('seqLengths','i4',('numSeqs',))
+        inputs = train.createVariable('inputs','f4',('numTimesteps','inputPattSize',))
+        targetClasses = train.createVariable('targetClasses','i4',('numTimesteps',))
+        
         seqStartIndices = train.createVariable('seqStartIndices','i4',('numSeqs',))
         labelLengths = train.createVariable('labelLengths','i4',('numSeqs',))
         labelStartIndices = train.createVariable('labelStartIndices','i4',('numSeqs',))
-        inputs = train.createVariable('inputs','f4',('numTimesteps','inputPattSize',))
-        targetClasses = train.createVariable('targetClasses','i4',('numTimesteps',))
         
         # write into variables    
         index = 0
@@ -587,171 +583,6 @@ def CreateNetCDF(useCTC):
         print '\n\nfail test\n\n'
         pass
     test.close()  
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# TODOs: move or remove following functions ****************************************************************
-
-
-def CreatePklNoCTC():
-    """
-    DEPRECATED - SWITCHED TO NETCDF4 - WILL BE DELETED
-    Basically the same as main, but creates target outputs for every timestep.
-    And writes to file timit_data_noCTC.pkl
-    To run this "alternative" main function, just change the call of main() to mainNoCTC
-    on the very bottom of this script
-    """
-# ********************************* Configurations ************************************   
-    # 41 filters, 
-    rootdir = '../../TIMIT/timit'
-    storePath = '../data/timit_data_noCTC.pkl'
-    winlen, winstep, nfilt, lowfreq, highfreq, preemph, winSzForDelta, samplerate = \
-    0.025,  0.01,   40,     200,     8000,     0.97,    2,             16000    
-     
-    nfft = nextpow2(samplerate*winlen) 
-    n_speaker_val = 50 
-# *************************************************************************************
-    
-    
-    
-# *********************************** create logger ***********************************
-    logger = logging.getLogger('')
-    logger.setLevel(logging.DEBUG)
-# *************************************************************************************
-    
-
-# ******* get paths --> extract features from datasets --> normalize datasets *********    
-    logger.info('Extract paths from database and split train set into train+val...')
-    wav_train, wav_val, wav_test, phn_train, phn_val, phn_test = getTrainValTestPaths(rootdir,n_speaker_val)
-    
-    logger.info('Calc features from training, val and test data (given path) ...')
-    X_train = getAllFeatures(wav_train, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph,winSzForDelta)
-    X_val = getAllFeatures(wav_val, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph,winSzForDelta)
-    X_test = getAllFeatures(wav_test, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph,winSzForDelta)
-    
-    logger.info('calculate mean and var from training-set --> normalise training-, test- and val-set ...')
-    X_train, X_val, X_test, mean_vector, std_vect = normaliseFeatureVectors(X_train, X_val, X_test)
-# get targets
-    logger.info('Extract target Sequences...')
-    labelSequence_train = getTargetsEachTimestep(phn_train, [len(s) for s in X_train], winstep, samplerate, winlen)
-    labelSequence_val = getTargetsEachTimestep(phn_val, [len(s) for s in X_val], winstep, samplerate, winlen)
-    labelSequence_test = getTargetsEachTimestep(phn_test, [len(s) for s in X_test], winstep, samplerate, winlen)
-
-    phonemeDic = getPhonemeDictionary()
-
-    logger.info('convert test and train targets into numbers ...')  
-    y_train = convertPhoneSequences(labelSequence_train, phonemeDic)
-    y_val = convertPhoneSequences(labelSequence_val, phonemeDic)
-    y_test = convertPhoneSequences(labelSequence_test, phonemeDic)
-#**************************************************************************************
-#**************************** save datasets *******************************************
-    with open(storePath, 'wb') as output:
-        pkl.dump(X_train, output, pkl.HIGHEST_PROTOCOL)
-        pkl.dump(X_val, output, pkl.HIGHEST_PROTOCOL)
-        pkl.dump(X_test, output, pkl.HIGHEST_PROTOCOL)
-        pkl.dump(y_train, output, pkl.HIGHEST_PROTOCOL)
-        pkl.dump(y_val, output, pkl.HIGHEST_PROTOCOL)
-        pkl.dump(y_test, output, pkl.HIGHEST_PROTOCOL)   
-
-
-
-def CreatePkl():
-    '''
-    DEPRECATED - SWITCHED TO NETCDF4 - WILL BE DELETED
-    Specify parameters in 'Configurations' below, the filepath to timit root and the
-    filepath to store the extracted data
-    The script extracts training, test and validation input and target data and saves
-    it to timit_data.pkl (path specified below)
-    You will need PySoundFile to read TIMIT .wav files and python_speech_features
-    
-    For PySoundFile see: 
-        See: http://pysoundfile.readthedocs.org/en/0.7.0/ and
-        https://github.com/bastibe/PySoundFile
-    For see python_speech_features see:
-        http://python-speech-features.readthedocs.org/en/latest/ or
-        https://github.com/jameslyons/python_speech_features
-    '''
-# ********************************* Configurations ************************************   
-    rootdir = '../../TIMIT/timit'
-    storePath = '../data/timit_data.pkl'
-    winlen, winstep, nfilt, lowfreq, highfreq, preemph, winSzForDelta, samplerate = \
-    0.025,  0.01,   40,     200,     8000,     0.97,    2,             16000    
-     
-    nfft = nextpow2(samplerate*winlen) 
-    n_speaker_val = 50 
-# *************************************************************************************
-    
-    
-    
-# *********************************** create logger ***********************************
-    logger = logging.getLogger('')
-    logger.setLevel(logging.DEBUG)
-# *************************************************************************************
-    
-
-# ******* get paths --> extract features from datasets --> normalize datasets *********    
-    logger.info('Extract paths from database and split train set into train+val...')
-    wav_train, wav_val, wav_test, phn_train, phn_val, phn_test = getTrainValTestPaths(rootdir,n_speaker_val)
-    
-    logger.info('Calc features from training, val and test data (given path) ...')
-    X_train = getAllFeatures(wav_train, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph,winSzForDelta)
-    X_val = getAllFeatures(wav_val, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph,winSzForDelta)
-    X_test = getAllFeatures(wav_test, samplerate, winlen, winstep, nfilt,nfft, lowfreq, highfreq,preemph,winSzForDelta)
-    
-    logger.info('calculate mean and var from training-set --> normalise training-, test- and val-set ...')
-    X_train, X_val, X_test, mean_vector, std_vect = normaliseFeatureVectors(X_train, X_val, X_test)
-# get targets
-    logger.info('Extract target Sequences...')
-    labelSequence_train = getTargets(phn_train)
-    labelSequence_val = getTargets(phn_val)
-    labelSequence_test = getTargets(phn_test)
-
-
-    logger.info('convert test and train targets into numbers ...')  
-    phonemeDic = getPhonemeDictionary()
-    y_train = convertPhoneSequences(labelSequence_train, phonemeDic)
-    y_val = convertPhoneSequences(labelSequence_val, phonemeDic)
-    y_test = convertPhoneSequences(labelSequence_test, phonemeDic)
-#**************************************************************************************
-#**************************** save datasets *******************************************
-    with open(storePath, 'wb') as output:
-        pkl.dump(X_train, output, pkl.HIGHEST_PROTOCOL)
-        pkl.dump(X_val, output, pkl.HIGHEST_PROTOCOL)
-        pkl.dump(X_test, output, pkl.HIGHEST_PROTOCOL)
-        pkl.dump(y_train, output, pkl.HIGHEST_PROTOCOL)
-        pkl.dump(y_val, output, pkl.HIGHEST_PROTOCOL)
-        pkl.dump(y_test, output, pkl.HIGHEST_PROTOCOL)
-    
-# read in data in other script with the following lines
-    
-#    with open(storePath, 'rb') as input:
-#        X_train = pkl.load(input)
-#        X_val = pkl.load(input)
-#        X_test = pkl.load(input)
-#        y_train = pkl.load(input)
-#        y_val = pkl.load(input)
-#        y_test = pkl.load(input)
-
-
-
-
-
-
-
-
-
 
 
 

@@ -18,16 +18,16 @@ from netCDF4 import Dataset
 logger = be.createLogger()
 
 # ************** load netCDF4 datasets ***************************
-dataPath = '../data/'
+dataPath = '../data/noCTC/'
 trainDataset = Dataset(dataPath+'train.nc')
 valDataset = Dataset(dataPath+'val.nc')
 
 # ************* definitions  for test data ***********************
 # training parameters
 BATCH_SIZE = 50
-N_EPOCHS = 50
+N_EPOCHS = 20
 LEARNING_RATE = 1e-3
-EPOCH_SIZE = 100 
+
 # TODO: which value appropriate for gradient clipping?! Values above 0.1 do not prevent gradient exploding,
 # make sure value is not too small... 0.0001 "seems to work"...
 GRAD_CLIP = 0.0001 # clip large gradients in order to prevent exploding gradients,
@@ -151,6 +151,9 @@ for epoch in range(N_EPOCHS):
     end_time_epoch = time.time()
     logger.info("Epoch {} took {}, cost(val) = {}, PER-mean = {}".format(
         epoch, end_time_epoch - start_time_epoch, cost_val, np.mean(PERs)))
+        
+    if (epoch%10 == 0) & (epoch != 0):
+        be.saveParams()
 
 
 

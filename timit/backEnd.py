@@ -9,6 +9,17 @@ import numpy as np
 import theano
 import lasagne
 import logging
+import pickle as pkl
+
+def saveParams(layer, filename, **tags):
+    params = lasagne.layers.get_all_param_values(layer, **tags)
+    with open(filename, 'wb') as output:
+        pkl.dump(params, output, pkl.HIGHEST_PROTOCOL)
+
+def loadParams(filename, **tags):
+    with open(filename, 'rb') as input:
+        params = pkl.load(input)
+    return params
 
 
 def BLSTMConcatLayer(*args, **kwargs):
@@ -86,6 +97,7 @@ def makeRandomBatchesFromNetCDF(rootgrp, batch_size):
            X_mask[shuffle].reshape([n_batches, batch_size, input_sequence_length]).astype(theano.config.floatX), \
            y_mask[shuffle].reshape([n_batches, batch_size, output_sequence_length]).astype(theano.config.floatX)
 
+
 def makeBatches(X, y, input_sequence_length, output_sequence_length, batch_size):
     '''
     Convert a numpy-vector(list) of matrices into batches of uniform length
@@ -146,7 +158,6 @@ def makeBatches(X, y, input_sequence_length, output_sequence_length, batch_size)
            y_batch.astype(theano.config.floatX), y_mask.astype(theano.config.floatX)
     
 
-
 def makeBatchesNoCTC(X, y, sequence_length, batch_size):
     """
     Not needed anymore... delete me eventually
@@ -181,8 +192,6 @@ def makeBatchesNoCTC(X, y, sequence_length, batch_size):
            mask.astype(theano.config.floatX)
     
     
-    
-    
 def genModel(batch_size, max_input_seq_len, input_dim, output_dim, gradient_steps, grad_clip, lstm_hidden_units):
     """
     Creates a deep BLSTM model with 3 layers of BLSTM units, where BLSTM units consist of 2 LSTM units,
@@ -194,7 +203,8 @@ def genModel(batch_size, max_input_seq_len, input_dim, output_dim, gradient_step
     """
 #************************************* Input Layer ********************************************
     l_in = lasagne.layers.InputLayer(shape=(batch_size, max_input_seq_len, input_dim))
-    l_mask = lasagne.layers.InputLayer(shape=(batch_size, max_input_seq_len))
+    l_mask = lasagne.layers.InputLayer(shape=(batch_size, max_input_seq_len), 
+                                       input_var=theano.tensor.matrix('input_mask', dtype=theano.config.floatX))
 
     blstm0 = BLSTMConcatLayer(incoming=l_in, mask_input=l_mask, 
         num_units=lstm_hidden_units[0], gradient_steps=gradient_steps, grad_clipping=grad_clip)
@@ -223,13 +233,11 @@ def genModel(batch_size, max_input_seq_len, input_dim, output_dim, gradient_step
         
     return l_out_lin_shp, l_out_softmax_shp, l_in, l_mask
     
-    
-    
+        
 def decodeSequence(sequence_probdist, mask, blanksymbol):
     """
     This function decodes the output sequence from the network, which has the same length
-    as the input sequence. The target sequence is generally shorter, thus the decoded sequence
-    will also be shorter.
+    as the input sequence. This one takes just the most probable label and removes blanks and same phonemes
     """
     # just for testing, brute-force take output with highest prob and then eleminate repeated labels+blanks
     mostProbSeq = sequence_probdist[mask==1].argmax(axis=1)
@@ -306,8 +314,6 @@ def calcPER(tar, out):
     return float(D[len(tar)][len(out)])/len(tar)
 
 
-
-
 def categorical_crossentropy_batch(coding_dist, true_dist, mask):
     """
     Apply categorical crossentropy and zero out entropies, where mask = 0.
@@ -355,9 +361,28 @@ def createLogger():
         logger.addHandler(fh) # and fileHandler
         
     return logger
-    
-    
-    
+ 
+
+#def beamsearch():
+#    Initalise: B = {∅}; Pr(∅) = 1
+#    for t = 1 to T do
+#        A = B
+#        B = {}
+#        for y in A do
+#            #Pr(y) += Pyˆ∈pref(y)∩A Pr(yˆ) Pr(y|yˆ, t)
+#    
+#        while B contains less than W elements moreprobable than the most probable in A:
+#            y∗ = most probable in A
+#            Remove y∗from A
+#            Pr(y∗) = Pr(y∗) Pr(∅|y, t)
+#            Add y∗to B
+#            for k ∈ Y:
+#                Pr(y∗ + k) = Pr(y∗) Pr(k|y∗, t)
+#                Add y∗ + k to A
+#        Remove all but the W most probable from B
+#        
+#    return y with highest log Pr(y)/|y| in B
+        
 def beamsearch(cost, extra, initial, B, E):
 	"""A breadth-first beam search.
 	B = max number of options to keep,

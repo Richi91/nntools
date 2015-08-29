@@ -12,7 +12,7 @@ import theano.tensor as T
 import backEnd as be
 import time
 import sys
-sys.path.append('../../Lasagne-CTC')
+sys.path.append('../../CTC-Connectionist-Temporal-Classification-master_pbrakel')
 import ctc_cost as ctc
 from netCDF4 import Dataset
 
@@ -27,12 +27,10 @@ valDataset = Dataset(dataPath+'val.nc')
 # ************* definitions  for test data ***********************
 # training parameters
 BATCH_SIZE = 50
-N_EPOCHS = 50
-LEARNING_RATE = 1e-4
+N_EPOCHS = 100
+LEARNING_RATE = 1e-5
 EPOCH_SIZE = 100 
-# TODO: which value appropriate for gradient clipping?! Values above 0.1 do not prevent gradient exploding,
-# make sure value is not too small... 0.0001 "seems to work"...
-GRAD_CLIP = 0.0001 # clip large gradients in order to prevent exploding gradients,
+GRAD_CLIP = False # clip large gradients in order to prevent exploding gradients,
 GRADIENT_STEPS = -1 # defines how many timesteps are used for error backpropagation. -1 = all
 
 # Network size parameters
@@ -46,36 +44,49 @@ MAX_INPUT_SEQ_LEN = len(trainDataset.dimensions['maxInputLength']) # 778
 
 
 
-
 #*******************************************************************************************************
 logger.info('generating model...')
-# model with linear and softmax output. Use linear for training with CTC and Softmax eventually for validation
+# Need linear for training with pseudo_cost and Softmax for validation with cost
 model_lin, model_soft, l_in, l_mask = be.genModel(
     batch_size=BATCH_SIZE, max_input_seq_len=MAX_INPUT_SEQ_LEN,input_dim=INPUT_DIM, output_dim=OUTPUT_DIM, 
         gradient_steps=GRADIENT_STEPS, grad_clip=GRAD_CLIP, lstm_hidden_units=N_LSTM_HIDDEN_UNITS)
 
+#filename = '../data/paramValues/params_3l_epoch_39.pkl'
+#paramValues = be.loadParams(filename)
+#lasagne.layers.set_all_param_values(model_lin, paramValues)
+
 output_lin = lasagne.layers.get_output(model_lin) 
 output_softmax = lasagne.layers.get_output(model_soft) 
 
-Y = T.matrix('target', dtype=theano.config.floatX) #BATCH_SIZE x SEQ_LEN
-Y_mask = T.matrix('target_mask', dtype=theano.config.floatX) #BATCH_SIZE x SEQ_LEN
+Y = T.matrix('target', dtype=theano.config.floatX) #BATCH_SIZE x MAX_OUTPUT_SEQ_LEN
+Y_mask = T.matrix('target_mask', dtype=theano.config.floatX) #BATCH_SIZE x MAX_OUTPUT_SEQ_LEN
 
-cost = ctc.pseudo_cost(y=Y, y_hat=output_lin, y_mask=Y_mask, mask=l_mask.input_var).mean()
-                                   
 # get all parameters used for training
-all_params = lasagne.layers.get_all_params(model_soft) 
+all_params = lasagne.layers.get_all_params(model_lin, trainable=True) 
+
+ctc_cost_train = ctc.pseudo_cost(y=Y.dimshuffle((1,0)), \
+                       y_hat=output_lin.dimshuffle((1,0,2)), \
+                       y_mask=Y_mask.dimshuffle((1,0)), \
+                       y_hat_mask=(l_mask.input_var).dimshuffle((1,0)), \
+                       skip_softmax=True).mean(dtype=theano.config.floatX)
+                       
+ctc_cost_monitor = ctc.cost(y=Y.dimshuffle((1,0)), \
+                            y_hat=output_softmax.dimshuffle((1,0,2)), \
+                            y_mask=Y_mask.dimshuffle((1,0)), \
+                            y_hat_mask=(l_mask.input_var).dimshuffle((1,0))).mean(dtype=theano.config.floatX)                                
                                       
-updates = lasagne.updates.momentum(
-    cost, all_params, learning_rate=lasagne.utils.floatX(LEARNING_RATE))   
+updates = lasagne.updates.adadelta(
+    ctc_cost_train, all_params, learning_rate=lasagne.utils.floatX(LEARNING_RATE))   
+
     
 logger.info('compiling functions...')
 train = theano.function([l_in.input_var, Y, l_mask.input_var, Y_mask],
-                        outputs=[output_softmax, cost],
+                        outputs=[output_softmax, ctc_cost_monitor],
                         updates=updates)
                         
 compute_cost = theano.function(
                 inputs=[l_in.input_var, Y, l_mask.input_var, Y_mask],
-                outputs=cost)
+                outputs=ctc_cost_monitor)
 
 forward_pass = theano.function(inputs=[l_in.input_var, l_mask.input_var],
                                outputs=[output_softmax])                
@@ -160,10 +171,9 @@ for epoch in range(N_EPOCHS):
     logger.info("Epoch {} took {}, cost(val) = {}, PER-mean = {}".format(
         epoch, end_time_epoch - start_time_epoch, cost_val, np.mean(PERs)))
 
-
-
-
-
+    if ((epoch+1)%10 == 0):
+        filename = '../data/paramValues/params_3l_cost_epoch_' + str(epoch) + '.pkl' 
+        be.saveParams(model_lin, filename)
 
 
 
